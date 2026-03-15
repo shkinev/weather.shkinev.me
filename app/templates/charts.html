@@ -9,7 +9,7 @@
     <div>
         <p class="eyebrow">Аналитика</p>
         <h1>Графики за разные периоды</h1>
-        <p class="lede">Выберите интервал и получите динамику основных метрик по всей накопленной телеметрии.</p>
+        <p class="lede">Выберите интервал и получите динамику основных метрик по накопленной телеметрии.</p>
     </div>
     <form class="period-switcher" method="get" action="/charts">
         {% for option in [1, 3, 7, 30] %}
@@ -26,8 +26,12 @@
         <canvas id="chart-temp"></canvas>
     </article>
     <article class="glass-card chart-card">
-        <h2>Влажность и давление</h2>
-        <canvas id="chart-air"></canvas>
+        <h2>Влажность</h2>
+        <canvas id="chart-humidity"></canvas>
+    </article>
+    <article class="glass-card chart-card">
+        <h2>Давление</h2>
+        <canvas id="chart-pressure"></canvas>
     </article>
     <article class="glass-card chart-card">
         <h2>Ветер</h2>
@@ -37,6 +41,11 @@
         <h2>Качество воздуха и осадки</h2>
         <canvas id="chart-extra"></canvas>
     </article>
+</section>
+
+<section class="panel empty-state" id="charts-status" hidden>
+    <h2>Графики пока не построены</h2>
+    <p id="charts-status-text"></p>
 </section>
 
 <script>
@@ -51,28 +60,31 @@ const palette = {
   gray: "#a4b3c8"
 };
 
-function dataset(series, sensorId, color) {
-  const item = series[sensorId];
-  if (!item) {
-    return null;
+function datasetByIds(series, ids, color, fallbackLabel) {
+  for (const id of ids) {
+    const item = series[id];
+    if (item && Array.isArray(item.points) && item.points.length > 0) {
+      return {
+        label: item.label || fallbackLabel || id,
+        data: item.points.map((point) => ({ x: point.x, y: point.y })),
+        borderColor: color,
+        backgroundColor: color,
+        tension: 0.3,
+        fill: false,
+        pointRadius: 0
+      };
+    }
   }
-  return {
-    label: item.label,
-    data: item.points.map((point) => ({ x: point.x, y: point.y })),
-    borderColor: color,
-    backgroundColor: color,
-    tension: 0.3,
-    fill: false,
-    pointRadius: 0
-  };
+  return null;
 }
 
 function createChart(elementId, datasets) {
   const target = document.getElementById(elementId);
   const filtered = datasets.filter(Boolean);
   if (!target || !filtered.length) {
-    return;
+    return false;
   }
+
   new Chart(target, {
     type: "line",
     data: { datasets: filtered },
@@ -97,28 +109,58 @@ function createChart(elementId, datasets) {
       }
     }
   });
+
+  return true;
+}
+
+function showStatus(text) {
+  const panel = document.getElementById("charts-status");
+  const statusText = document.getElementById("charts-status-text");
+  if (!panel || !statusText) {
+    return;
+  }
+  statusText.textContent = text;
+  panel.hidden = false;
 }
 
 fetch(`/api/chart-data?days=${days}`)
-  .then((response) => response.json())
+  .then((response) => {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  })
   .then((payload) => {
     const series = payload.series || {};
-    createChart("chart-temp", [
-      dataset(series, "T1", palette.orange),
-      dataset(series, "T2", palette.blue)
-    ]);
-    createChart("chart-air", [
-      dataset(series, "RH", palette.mint),
-      dataset(series, "PRESS", palette.amber)
-    ]);
-    createChart("chart-wind", [
-      dataset(series, "WS", palette.blue)
-    ]);
-    createChart("chart-extra", [
-      dataset(series, "PM2", palette.red),
-      dataset(series, "PM10", palette.gray),
-      dataset(series, "RAIN2", palette.mint)
-    ]);
+
+    const built = [
+      createChart("chart-temp", [
+        datasetByIds(series, ["T1"], palette.orange),
+        datasetByIds(series, ["T2", "T3", "T4"], palette.blue)
+      ]),
+      createChart("chart-humidity", [
+        datasetByIds(series, ["RH", "H1", "H2"], palette.mint)
+      ]),
+      createChart("chart-pressure", [
+        datasetByIds(series, ["PRESS", "HPA"], palette.amber)
+      ]),
+      createChart("chart-wind", [
+        datasetByIds(series, ["WS"], palette.blue),
+        datasetByIds(series, ["WS1"], palette.gray)
+      ]),
+      createChart("chart-extra", [
+        datasetByIds(series, ["PM2"], palette.red),
+        datasetByIds(series, ["PM10"], palette.gray),
+        datasetByIds(series, ["RAIN2"], palette.mint)
+      ])
+    ];
+
+    if (built.every((result) => result === false)) {
+      showStatus("Нет данных за выбранный период. Проверьте, что станция отправляет телеметрию на /api/ingest.");
+    }
+  })
+  .catch((error) => {
+    showStatus(`Ошибка загрузки данных графиков: ${error.message}`);
   });
 </script>
 {% endblock %}

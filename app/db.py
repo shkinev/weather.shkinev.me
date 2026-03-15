@@ -66,6 +66,36 @@ def init_db(db_path: Path | None = None) -> None:
         connection.close()
 
 
+def parse_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def format_relative_age(value: str, now: datetime | None = None) -> str:
+    try:
+        observed_at = parse_timestamp(value)
+    except ValueError:
+        return value
+
+    current = now or datetime.now(UTC)
+    seconds = max(0, int((current - observed_at).total_seconds()))
+    if seconds < 60:
+        return "только что"
+
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} мин назад"
+
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} ч назад"
+
+    days = hours // 24
+    return f"{days} дн назад"
+
+
 def save_payload(payload: dict[str, Any], received_at: datetime | None = None) -> dict[str, Any]:
     timestamp = (received_at or datetime.now(UTC)).replace(microsecond=0)
     devices = payload.get("devices") or []
@@ -163,6 +193,7 @@ def get_latest_snapshot() -> dict[str, Any] | None:
         "batch_id": batch["id"],
         "device_mac": batch["device_mac"],
         "received_at": batch["received_at"],
+        "received_ago": format_relative_age(batch["received_at"]),
         "primary_readings": primary,
         "readings": readings,
     }
@@ -170,14 +201,29 @@ def get_latest_snapshot() -> dict[str, Any] | None:
 
 def get_chart_series(days: int) -> dict[str, Any]:
     period = max(1, min(days, 90))
-    tracked = ("T1", "T2", "RH", "PRESS", "WS", "PM2", "PM10", "RAIN2")
+    tracked = (
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "RH",
+        "H1",
+        "H2",
+        "PRESS",
+        "HPA",
+        "WS",
+        "WS1",
+        "PM2",
+        "PM10",
+        "RAIN2",
+    )
 
     with get_connection() as connection:
         rows = connection.execute(
             """
             SELECT sensor_id, sensor_name, observed_at, value, unit
             FROM observations
-            WHERE observed_at >= datetime('now', ?)
+            WHERE julianday(observed_at) >= julianday('now', ?)
               AND sensor_id IN ({placeholders})
             ORDER BY observed_at ASC
             """.format(placeholders=",".join("?" for _ in tracked)),
@@ -245,7 +291,7 @@ def format_telegram_snapshot(snapshot: dict[str, Any] | None) -> str:
     lines = [
         "Текущая погода",
         f"Станция: {snapshot['device_mac']}",
-        f"Обновлено: {snapshot['received_at']}",
+        f"Обновлено: {snapshot.get('received_ago') or format_relative_age(snapshot['received_at'])}",
         "",
     ]
 

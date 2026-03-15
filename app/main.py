@@ -30,7 +30,6 @@ def dashboard(request: Request) -> HTMLResponse:
         {
             "request": request,
             "snapshot": snapshot,
-            "updated_at": snapshot["received_at"] if snapshot else None,
         },
     )
 

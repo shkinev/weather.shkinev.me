@@ -6,7 +6,7 @@
         <p class="eyebrow">Локальная метеостанция</p>
         <h1>Текущие погодные данные</h1>
         {% if snapshot %}
-        <p class="lede">Последняя телеметрия от {{ snapshot.device_mac }} получена {{ snapshot.received_at }}.</p>
+        <p class="lede">Последняя телеметрия от {{ snapshot.device_mac }} получена {{ snapshot.received_ago }}.</p>
         {% else %}
         <p class="lede">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</p>
         {% endif %}
@@ -23,7 +23,7 @@
     <article class="glass-card metric-card">
         <p class="metric-label">{{ reading.sensor_name }}</p>
         <p class="metric-value">{{ "%.2f"|format(reading.value) }}</p>
-        <p class="metric-unit">{{ reading.unit or "&nbsp;" }}</p>
+        <p class="metric-unit">{{ reading.unit or "—" }}</p>
     </article>
     {% endfor %}
 </section>
