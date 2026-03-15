@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}История{% endblock %}
+{% block content %}
+<section class="hero compact">
+    <div>
+        <p class="eyebrow">Архив</p>
+        <h1>История за выбранный день</h1>
+        <p class="lede">Выберите дату и просмотрите все пакеты телеметрии за этот день.</p>
+    </div>
+    <form class="date-picker" method="get" action="/history">
+        <input type="date" name="day" value="{{ selected_day }}">
+        <button type="submit">Показать</button>
+    </form>
+</section>
+
+{% if items %}
+<section class="timeline">
+    {% for item in items %}
+    <article class="glass-card batch-card">
+        <div class="panel-head">
+            <h2>{{ item.received_at }}</h2>
+            <span>{{ item.device_mac }}</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Датчик</th>
+                        <th>Код</th>
+                        <th>Значение</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for reading in item.readings %}
+                    <tr>
+                        <td>{{ reading.sensor_name }}</td>
+                        <td>{{ reading.sensor_id }}</td>
+                        <td>{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+    {% endfor %}
+</section>
+{% else %}
+<section class="panel empty-state">
+    <h2>За {{ selected_day }} данных нет</h2>
+    <p>Как только станция пришлет показания в этот день, они появятся здесь.</p>
+</section>
+{% endif %}
+{% endblock %}

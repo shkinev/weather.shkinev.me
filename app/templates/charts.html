@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Графики{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+{% endblock %}
+{% block content %}
+<section class="hero compact">
+    <div>
+        <p class="eyebrow">Аналитика</p>
+        <h1>Графики за разные периоды</h1>
+        <p class="lede">Выберите интервал и получите динамику основных метрик по всей накопленной телеметрии.</p>
+    </div>
+    <form class="period-switcher" method="get" action="/charts">
+        {% for option in [1, 3, 7, 30] %}
+        <button type="submit" name="days" value="{{ option }}" class="{% if option == days %}active{% endif %}">
+            {{ option }}д
+        </button>
+        {% endfor %}
+    </form>
+</section>
+
+<section class="charts-grid">
+    <article class="glass-card chart-card">
+        <h2>Температура</h2>
+        <canvas id="chart-temp"></canvas>
+    </article>
+    <article class="glass-card chart-card">
+        <h2>Влажность и давление</h2>
+        <canvas id="chart-air"></canvas>
+    </article>
+    <article class="glass-card chart-card">
+        <h2>Ветер</h2>
+        <canvas id="chart-wind"></canvas>
+    </article>
+    <article class="glass-card chart-card">
+        <h2>Качество воздуха и осадки</h2>
+        <canvas id="chart-extra"></canvas>
+    </article>
+</section>
+
+<script>
+const days = {{ days }};
+
+const palette = {
+  orange: "#ff8a3d",
+  blue: "#4db6ff",
+  mint: "#4de2b1",
+  red: "#ff5d6c",
+  amber: "#ffc857",
+  gray: "#a4b3c8"
+};
+
+function dataset(series, sensorId, color) {
+  const item = series[sensorId];
+  if (!item) {
+    return null;
+  }
+  return {
+    label: item.label,
+    data: item.points.map((point) => ({ x: point.x, y: point.y })),
+    borderColor: color,
+    backgroundColor: color,
+    tension: 0.3,
+    fill: false,
+    pointRadius: 0
+  };
+}
+
+function createChart(elementId, datasets) {
+  const target = document.getElementById(elementId);
+  const filtered = datasets.filter(Boolean);
+  if (!target || !filtered.length) {
+    return;
+  }
+  new Chart(target, {
+    type: "line",
+    data: { datasets: filtered },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      parsing: false,
+      scales: {
+        x: {
+          type: "time",
+          time: { tooltipFormat: "yyyy-MM-dd HH:mm" },
+          ticks: { color: "#9eb0c7" },
+          grid: { color: "rgba(148, 163, 184, 0.12)" }
+        },
+        y: {
+          ticks: { color: "#9eb0c7" },
+          grid: { color: "rgba(148, 163, 184, 0.12)" }
+        }
+      },
+      plugins: {
+        legend: { labels: { color: "#f4f7fb" } }
+      }
+    }
+  });
+}
+
+fetch(`/api/chart-data?days=${days}`)
+  .then((response) => response.json())
+  .then((payload) => {
+    const series = payload.series || {};
+    createChart("chart-temp", [
+      dataset(series, "T1", palette.orange),
+      dataset(series, "T2", palette.blue)
+    ]);
+    createChart("chart-air", [
+      dataset(series, "RH", palette.mint),
+      dataset(series, "PRESS", palette.amber)
+    ]);
+    createChart("chart-wind", [
+      dataset(series, "WS", palette.blue)
+    ]);
+    createChart("chart-extra", [
+      dataset(series, "PM2", palette.red),
+      dataset(series, "PM10", palette.gray),
+      dataset(series, "RAIN2", palette.mint)
+    ]);
+  });
+</script>
+{% endblock %}

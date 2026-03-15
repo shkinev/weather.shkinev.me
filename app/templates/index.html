@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Текущая погода{% endblock %}
+{% block content %}
+<section class="hero">
+    <div>
+        <p class="eyebrow">Локальная метеостанция</p>
+        <h1>Текущие погодные данные</h1>
+        {% if snapshot %}
+        <p class="lede">Последняя телеметрия от {{ snapshot.device_mac }} получена {{ snapshot.received_at }}.</p>
+        {% else %}
+        <p class="lede">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</p>
+        {% endif %}
+    </div>
+    <div class="glass-card accent">
+        <p class="muted">Что уже есть</p>
+        <p>Прием JSON от станции, хранение в SQLite, графики по периодам и история по дням.</p>
+    </div>
+</section>
+
+{% if snapshot %}
+<section class="cards-grid">
+    {% for reading in snapshot.primary_readings %}
+    <article class="glass-card metric-card">
+        <p class="metric-label">{{ reading.sensor_name }}</p>
+        <p class="metric-value">{{ "%.2f"|format(reading.value) }}</p>
+        <p class="metric-unit">{{ reading.unit or "&nbsp;" }}</p>
+    </article>
+    {% endfor %}
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>Все доступные датчики</h2>
+        <span>{{ snapshot.readings|length }} показаний</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Датчик</th>
+                    <th>Код</th>
+                    <th>Значение</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for reading in snapshot.readings %}
+                <tr>
+                    <td>{{ reading.sensor_name }}</td>
+                    <td>{{ reading.sensor_id }}</td>
+                    <td>{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}
