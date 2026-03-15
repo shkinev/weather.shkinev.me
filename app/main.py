@@ -64,6 +64,11 @@ async def ingest(payload: dict[str, Any]) -> JSONResponse:
     return JSONResponse({"status": "ok", **result})
 
 
+@app.get("/api/status")
+def api_status() -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/api/current")
 def current_weather() -> JSONResponse:
     snapshot = get_latest_snapshot()
