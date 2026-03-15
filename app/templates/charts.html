@@ -66,7 +66,7 @@ function datasetByIds(series, ids, color, fallbackLabel) {
     if (item && Array.isArray(item.points) && item.points.length > 0) {
       return {
         label: item.label || fallbackLabel || id,
-        data: item.points.map((point) => ({ x: point.x, y: point.y })),
+        data: item.points.map((point) => ({ x: new Date(point.x), y: point.y })),
         borderColor: color,
         backgroundColor: color,
         tension: 0.3,
@@ -91,7 +91,6 @@ function createChart(elementId, datasets) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      parsing: false,
       scales: {
         x: {
           type: "time",

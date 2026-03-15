@@ -117,7 +117,7 @@ def save_payload(payload: dict[str, Any], received_at: datetime | None = None) -
             inserted_batches += 1
 
             for sensor in sensors:
-                sensor_id = str(sensor.get("id") or "").strip()
+                sensor_id = str(sensor.get("id") or "").strip().upper()
                 value = sensor.get("value")
                 if not sensor_id or value is None:
                     continue
@@ -186,7 +186,7 @@ def get_latest_snapshot() -> dict[str, Any] | None:
             "unit": row["unit"],
         }
         readings.append(entry)
-        lookup[row["sensor_id"]] = entry
+        lookup[row["sensor_id"].upper()] = entry
 
     primary = [lookup[sensor_id] for sensor_id in PRIMARY_SENSOR_IDS if sensor_id in lookup]
     return {
@@ -201,33 +201,16 @@ def get_latest_snapshot() -> dict[str, Any] | None:
 
 def get_chart_series(days: int) -> dict[str, Any]:
     period = max(1, min(days, 90))
-    tracked = (
-        "T1",
-        "T2",
-        "T3",
-        "T4",
-        "RH",
-        "H1",
-        "H2",
-        "PRESS",
-        "HPA",
-        "WS",
-        "WS1",
-        "PM2",
-        "PM10",
-        "RAIN2",
-    )
-
     with get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT sensor_id, sensor_name, observed_at, value, unit
+            SELECT upper(sensor_id) AS sensor_id, sensor_name, observed_at, value, unit
             FROM observations
             WHERE julianday(observed_at) >= julianday('now', ?)
-              AND sensor_id IN ({placeholders})
+              AND sensor_id <> ''
             ORDER BY observed_at ASC
-            """.format(placeholders=",".join("?" for _ in tracked)),
-            (f"-{period} days", *tracked),
+            """,
+            (f"-{period} days",),
         ).fetchall()
 
     series: dict[str, dict[str, Any]] = {}

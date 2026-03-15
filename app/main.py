@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -79,3 +79,47 @@ def current_weather() -> JSONResponse:
 @app.get("/api/chart-data")
 def chart_data(days: int = 1) -> JSONResponse:
     return JSONResponse(get_chart_series(days))
+
+
+def _favicon_temp(snapshot: dict[str, Any] | None) -> float | None:
+    if not snapshot:
+        return None
+    for sensor_id in ("T1", "T2", "T3", "T4", "T5", "T6"):
+        for reading in snapshot.get("readings", []):
+            if str(reading.get("sensor_id", "")).upper() == sensor_id:
+                try:
+                    return float(reading["value"])
+                except (TypeError, ValueError, KeyError):
+                    return None
+    return None
+
+
+@app.get("/favicon.ico")
+def favicon_ico() -> RedirectResponse:
+    return RedirectResponse(url="/favicon.svg", status_code=307)
+
+
+@app.get("/favicon.svg")
+def favicon_svg() -> Response:
+    temp = _favicon_temp(get_latest_snapshot())
+    if temp is None:
+        label = "--"
+        bg = "#334155"
+    elif temp < 0:
+        label = f"{temp:.0f}"
+        bg = "#2563eb"
+    elif temp < 20:
+        label = f"{temp:.0f}"
+        bg = "#0ea5e9"
+    elif temp < 30:
+        label = f"{temp:.0f}"
+        bg = "#f59e0b"
+    else:
+        label = f"{temp:.0f}"
+        bg = "#ef4444"
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<rect x="2" y="2" width="60" height="60" rx="14" fill="{bg}"/>
+<text x="32" y="39" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">{label}</text>
+</svg>"""
+    return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
