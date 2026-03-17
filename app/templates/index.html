@@ -1,58 +1,81 @@
 {% extends "base.html" %}
-{% block title %}Текущая погода{% endblock %}
+{% block title %}Сейчас | Метеостанция{% endblock %}
 {% block content %}
-<section class="hero">
-    <div>
-        <p class="eyebrow">Локальная метеостанция</p>
-        <h1>Текущие погодные данные</h1>
+<div class="page-header d-print-none">
+    <div class="container-xl">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <div class="page-pretitle">Локальная метеостанция</div>
+                <h2 class="page-title">Текущие погодные данные</h2>
+                {% if snapshot %}
+                <div class="text-secondary mt-1">Последняя телеметрия от <strong>{{ snapshot.device_mac }}</strong> получена {{ snapshot.received_ago }}.</div>
+                {% else %}
+                <div class="text-secondary mt-1">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="page-body">
+    <div class="container-xl">
         {% if snapshot %}
-        <p class="lede">Последняя телеметрия от {{ snapshot.device_mac }} получена {{ snapshot.received_ago }}.</p>
+        <div class="row row-cards">
+            {% for reading in snapshot.primary_readings %}
+            <div class="col-sm-6 col-lg-3">
+                <div class="card metric-tile">
+                    <div class="card-body">
+                        <div class="text-secondary mb-2">{{ reading.sensor_name }}</div>
+                        <div class="display-6 fw-bold mb-1">{{ "%.2f"|format(reading.value) }}</div>
+                        <div class="text-blue fw-semibold">{{ reading.unit or "—" }}</div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="row row-cards mt-2">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Все доступные датчики</h3>
+                        <div class="card-actions text-secondary">{{ snapshot.readings|length }} показаний</div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-vcenter card-table">
+                            <thead>
+                                <tr>
+                                    <th>Датчик</th>
+                                    <th>Код</th>
+                                    <th class="text-end">Значение</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reading in snapshot.readings %}
+                                <tr>
+                                    <td>{{ reading.sensor_name }}</td>
+                                    <td><code>{{ reading.sensor_id }}</code></td>
+                                    <td class="text-end">{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
         {% else %}
-        <p class="lede">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</p>
+        <div class="row row-cards">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">Телеметрия еще не поступала</h3>
+                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся текущие показания и сводка.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
         {% endif %}
     </div>
-    <div class="glass-card accent">
-        <p class="muted">Что уже есть</p>
-        <p>Прием JSON от станции, хранение в SQLite, графики по периодам и история по дням.</p>
-    </div>
-</section>
-
-{% if snapshot %}
-<section class="cards-grid">
-    {% for reading in snapshot.primary_readings %}
-    <article class="glass-card metric-card">
-        <p class="metric-label">{{ reading.sensor_name }}</p>
-        <p class="metric-value">{{ "%.2f"|format(reading.value) }}</p>
-        <p class="metric-unit">{{ reading.unit or "—" }}</p>
-    </article>
-    {% endfor %}
-</section>
-
-<section class="panel">
-    <div class="panel-head">
-        <h2>Все доступные датчики</h2>
-        <span>{{ snapshot.readings|length }} показаний</span>
-    </div>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Датчик</th>
-                    <th>Код</th>
-                    <th>Значение</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for reading in snapshot.readings %}
-                <tr>
-                    <td>{{ reading.sensor_name }}</td>
-                    <td>{{ reading.sensor_id }}</td>
-                    <td>{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
-{% endif %}
+</div>
 {% endblock %}

@@ -1,0 +1,26 @@
+.metric-tile .display-6 {
+  line-height: 1.1;
+}
+
+.chart-card .card-body {
+  padding-top: 0.5rem;
+}
+
+.chart-canvas {
+  width: 100%;
+  height: 300px !important;
+}
+
+.chart-canvas-lg {
+  height: 340px !important;
+}
+
+@media (max-width: 768px) {
+  .chart-canvas {
+    height: 260px !important;
+  }
+
+  .chart-canvas-lg {
+    height: 280px !important;
+  }
+}

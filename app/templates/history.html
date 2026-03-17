@@ -1,53 +1,68 @@
 {% extends "base.html" %}
-{% block title %}История{% endblock %}
+{% block title %}История | Метеостанция{% endblock %}
 {% block content %}
-<section class="hero compact">
-    <div>
-        <p class="eyebrow">Архив</p>
-        <h1>История за выбранный день</h1>
-        <p class="lede">Выберите дату и просмотрите все пакеты телеметрии за этот день.</p>
+<div class="page-header d-print-none">
+    <div class="container-xl">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <div class="page-pretitle">Архив</div>
+                <h2 class="page-title">История за выбранный день</h2>
+                <div class="text-secondary mt-1">Выберите дату и просмотрите все пакеты телеметрии за этот день.</div>
+            </div>
+            <div class="col-auto ms-auto d-print-none">
+                <form class="d-flex gap-2" method="get" action="/history">
+                    <input class="form-control" type="date" name="day" value="{{ selected_day }}">
+                    <button class="btn btn-primary" type="submit">Показать</button>
+                </form>
+            </div>
+        </div>
     </div>
-    <form class="date-picker" method="get" action="/history">
-        <input type="date" name="day" value="{{ selected_day }}">
-        <button type="submit">Показать</button>
-    </form>
-</section>
+</div>
 
-{% if items %}
-<section class="timeline">
-    {% for item in items %}
-    <article class="glass-card batch-card">
-        <div class="panel-head">
-            <h2>{{ item.received_at }}</h2>
-            <span>{{ item.device_mac }}</span>
+<div class="page-body">
+    <div class="container-xl">
+        {% if items %}
+        <div class="row row-cards">
+            {% for item in items %}
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">{{ item.received_at }}</h3>
+                        <div class="card-actions">
+                            <span class="badge badge-outline text-blue">{{ item.device_mac }}</span>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-vcenter card-table">
+                            <thead>
+                                <tr>
+                                    <th>Датчик</th>
+                                    <th>Код</th>
+                                    <th class="text-end">Значение</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reading in item.readings %}
+                                <tr>
+                                    <td>{{ reading.sensor_name }}</td>
+                                    <td><code>{{ reading.sensor_id }}</code></td>
+                                    <td class="text-end">{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
         </div>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Датчик</th>
-                        <th>Код</th>
-                        <th>Значение</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for reading in item.readings %}
-                    <tr>
-                        <td>{{ reading.sensor_name }}</td>
-                        <td>{{ reading.sensor_id }}</td>
-                        <td>{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        {% else %}
+        <div class="empty">
+            <div class="empty-img"><i class="ti ti-cloud-off fs-1 text-secondary"></i></div>
+            <p class="empty-title">За {{ selected_day }} данных нет</p>
+            <p class="empty-subtitle text-secondary">Как только станция пришлет показания в этот день, они появятся здесь.</p>
         </div>
-    </article>
-    {% endfor %}
-</section>
-{% else %}
-<section class="panel empty-state">
-    <h2>За {{ selected_day }} данных нет</h2>
-    <p>Как только станция пришлет показания в этот день, они появятся здесь.</p>
-</section>
-{% endif %}
+        {% endif %}
+    </div>
+</div>
 {% endblock %}
