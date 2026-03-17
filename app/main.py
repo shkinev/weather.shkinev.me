@@ -9,9 +9,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from loguru import logger
 
 from .config import WEATHER_TIMEZONE
 from .db import get_chart_series, get_history_for_date, get_latest_snapshot, get_uptime_monitor, init_db, save_payload
+from .logging_setup import setup_logging
 
 
 app = FastAPI(title="Weather Station", version="1.0.0")
@@ -25,7 +27,21 @@ except ZoneInfoNotFoundError:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    setup_logging("web")
     init_db()
+    logger.info("Web service started")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info("HTTP {} {}", request.method, request.url.path)
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("Unhandled error on {} {}", request.method, request.url.path)
+        raise
+    logger.info("HTTP {} {} -> {}", request.method, request.url.path, response.status_code)
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
