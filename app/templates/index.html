@@ -131,15 +131,19 @@ function axisColor() {
   return isDarkTheme() ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.45)";
 }
 
-function buildSparkline(elementId, points, color) {
+function buildSparkline(elementId, points, color, unit) {
   const target = document.getElementById(elementId);
   if (!target || !Array.isArray(points) || points.length < 2) return;
   new Chart(target, {
     type: "line",
     data: {
-      labels: points.map((_, i) => i + 1),
+      labels: points.map((point) => {
+        const dt = new Date(point.x);
+        if (Number.isNaN(dt.getTime())) return "";
+        return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      }),
       datasets: [{
-        data: points,
+        data: points.map((point) => point.y),
         borderColor: color,
         borderWidth: 2,
         pointRadius: 0,
@@ -150,7 +154,22 @@ function buildSparkline(elementId, points, color) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      interaction: { mode: "nearest", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          enabled: true,
+          displayColors: false,
+          callbacks: {
+            label: (context) => {
+              const value = context.parsed.y;
+              if (value === null || value === undefined) return "—";
+              const suffix = unit ? ` ${unit}` : "";
+              return `${Number(value).toFixed(2)}${suffix}`;
+            }
+          }
+        }
+      },
       scales: {
         x: { display: false },
         y: { display: false, grid: { color: axisColor() } }
@@ -196,13 +215,15 @@ fetch("/api/chart-data?days=1")
       if (sid === "PRESS") aliases.push("HPA");
 
       let points = [];
+      let unit = "";
       for (const id of aliases) {
         if (series[id] && Array.isArray(series[id].points) && series[id].points.length > 1) {
-          points = series[id].points.map((point) => point.y);
+          points = series[id].points;
+          unit = series[id].unit || "";
           break;
         }
       }
-      buildSparkline(canvas.id, points, sparklineConfig[sid] || "#2563eb");
+      buildSparkline(canvas.id, points, sparklineConfig[sid] || "#2563eb", unit);
     });
   })
   .catch(() => {});
