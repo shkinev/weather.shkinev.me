@@ -172,7 +172,7 @@ fetch(`/api/chart-data?days=${days}`)
     const built = [
       createChart("chart-temp", [
         datasetByIds(series, ["T1"], palette.orange),
-        datasetByIds(series, ["T2", "T3", "T4", "T5", "T6"], palette.blue)
+        datasetByIds(series, ["T2", "T3", "T4", "T6"], palette.blue)
       ]),
       createChart("chart-humidity", [
         datasetByIds(series, ["RH", "H1", "H2"], palette.mint)
