@@ -1,128 +1,85 @@
 # Weather Station Dashboard
 
-Python-приложение для приема телеметрии от метеостанции, хранения данных в SQLite, просмотра текущей погоды, графиков и истории, плюс Telegram-бот с кнопкой текущей погоды.
+Приложение для приема телеметрии от метеостанции, хранения данных в SQLite, просмотра текущей погоды, графиков и истории, плюс Telegram-бот.
 
-## Docker-схема (без nginx в контейнере)
+## Что внутри
 
-На сервере используется один общий Nginx на хосте, который слушает `80/443`.
-Этот проект в Docker запускает только:
+- `web`: FastAPI + Jinja2
+- `bot`: Telegram-бот (polling)
+- `data/weather.sqlite3`: база с телеметрией
 
-- `web` (FastAPI/Uvicorn)
-- `bot` (Telegram polling)
+Nginx работает на хосте отдельно, в контейнер не включен.
 
-Контейнер `web` публикуется только в localhost хоста:
+## Переменные окружения
 
-- `127.0.0.1:${WEB_BIND_PORT:-18080} -> 8000`
-
-Поэтому конфликта портов между проектами нет.
-
-## Настройка через .env
-
-Скопируйте [.env.example](C:/Users/shkinev/project/weather.shkinev.me/.env.example) в `.env` и заполните значения.
-
-Пример:
-
-```bash
-copy .env.example .env
-```
-
-Основные переменные:
+Скопируйте `.env.example` в `.env` и заполните:
 
 - `WEATHER_DB_PATH=/data/weather.sqlite3`
-- `TELEGRAM_BOT_TOKEN=ваш_токен`
+- `TELEGRAM_BOT_TOKEN=...`
 - `WEB_BIND_PORT=18080`
+- `WEATHER_TIMEZONE=Asia/Omsk`
 
-## Запуск
+## Запуск в Docker
 
 ```bash
 docker compose up -d --build
 ```
 
-Остановка:
+Остановить:
 
 ```bash
 docker compose down
 ```
 
-## Конфиг хостового Nginx
+Веб будет доступен на:
 
-Ниже шаблон для `/etc/nginx/conf.d/weather.shkinev.me.conf` (или аналогичного файла на вашем сервере):
+- `http://127.0.0.1:18080`
 
-```nginx
-upstream weather_app {
-    server 127.0.0.1:18080;
-}
+## Локальный запуск без Docker (Windows, PowerShell)
 
-server {
-    listen 80;
-    listen [::]:80;
-    server_name __DOMAIN__;
+1. Создать и активировать виртуальное окружение:
 
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name __DOMAIN__;
-
-    ssl_certificate /etc/nginx/certs/shkinev_me.crt;
-    ssl_certificate_key /etc/nginx/certs/shkinev_me.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_tickets off;
-
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header X-Content-Type-Options nosniff always;
-
-    client_max_body_size 20m;
-
-    location / {
-        proxy_pass http://weather_app;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 120s;
-    }
-}
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
 
-После изменения конфига:
+2. Установить зависимости:
 
-```bash
-sudo nginx -t && sudo systemctl reload nginx
+```powershell
+pip install -r requirements.txt
 ```
 
-## Прием данных
+3. Указать путь к базе и таймзону:
 
-POST на `/api/ingest` с JSON в формате из `example.json`.
-
-Пример для Windows:
-
-```bash
-curl -X POST http://127.0.0.1:18080/api/ingest ^
-  -H "Content-Type: application/json" ^
-  --data "@example.json"
+```powershell
+$env:WEATHER_DB_PATH="data/weather.sqlite3"
+$env:WEATHER_TIMEZONE="Asia/Omsk"
 ```
 
-На проде обычно отправляют в ваш домен по HTTPS:
+4. Запустить веб:
 
-```bash
-curl -X POST https://__DOMAIN__/api/ingest ^
-  -H "Content-Type: application/json" ^
-  --data "@example.json"
+```powershell
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-## Структура контейнеров
+5. Открыть:
 
-- `web` запускает `uvicorn app.main:app --host 0.0.0.0 --port 8000`
-- `bot` запускает `python bot.py`
-- `web` и `bot` используют один и тот же bind mount `./data:/data`
+- `http://127.0.0.1:8000`
+
+6. (Опционально) запустить бота во второй консоли:
+
+```powershell
+$env:WEATHER_DB_PATH="data/weather.sqlite3"
+$env:WEATHER_TIMEZONE="Asia/Omsk"
+$env:TELEGRAM_BOT_TOKEN="ваш_токен"
+py -3 bot.py
+```
+
+## API
+
+- `POST /api/ingest` — прием данных станции
+- `GET /api/current` — текущий снимок
+- `GET /api/chart-data?days=1` — серии для графиков
+- `GET /api/uptime?hours=24` — данные uptime monitor
+- `GET /api/status` — статус сервиса

@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Сейчас | Метеостанция{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
     <div class="container-xl">
@@ -8,7 +11,7 @@
                 <div class="page-pretitle">Локальная метеостанция</div>
                 <h2 class="page-title">Текущие погодные данные</h2>
                 {% if snapshot %}
-                <div class="text-secondary mt-1">Последняя телеметрия от <strong>{{ snapshot.device_mac }}</strong> получена {{ snapshot.received_ago }}.</div>
+                <div class="text-secondary mt-1">Последнее обновление: {{ snapshot.received_freshness }} {{ snapshot.received_ago }} ({{ snapshot.received_local }}).</div>
                 {% else %}
                 <div class="text-secondary mt-1">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</div>
                 {% endif %}
@@ -22,12 +25,16 @@
         {% if snapshot %}
         <div class="row row-cards">
             {% for reading in snapshot.primary_readings %}
-            <div class="col-sm-6 col-lg-3">
+            <div class="col-sm-6 col-xl-4">
                 <div class="card metric-tile">
                     <div class="card-body">
-                        <div class="text-secondary mb-2">{{ reading.sensor_name }}</div>
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-secondary mb-1">{{ reading.sensor_name }}</div>
+                            <span class="badge badge-outline">{{ reading.sensor_id }}</span>
+                        </div>
                         <div class="display-6 fw-bold mb-1">{{ "%.2f"|format(reading.value) }}</div>
-                        <div class="text-blue fw-semibold">{{ reading.unit or "—" }}</div>
+                        <div class="text-blue fw-semibold mb-2">{{ reading.unit or "—" }}</div>
+                        <canvas class="metric-sparkline" id="spark-{{ reading.sensor_id }}"></canvas>
                     </div>
                 </div>
             </div>
@@ -35,7 +42,22 @@
         </div>
 
         <div class="row row-cards mt-2">
-            <div class="col-12">
+            <div class="col-lg-5">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Uptime Monitor</h3>
+                        <div class="card-actions">
+                            <span class="badge bg-green-lt text-green">{{ "%.1f"|format(uptime.availability) }}%</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-secondary mb-2">Активность входящих пакетов за {{ uptime.hours }} часа</div>
+                        <canvas id="uptime-chart" class="uptime-chart"></canvas>
+                        <div class="mt-3 text-secondary">Последний пакет: {{ uptime.freshness }} {{ uptime.last_seen_ago }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-7">
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Все доступные датчики</h3>
@@ -70,7 +92,7 @@
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title">Телеметрия еще не поступала</h3>
-                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся текущие показания и сводка.</div>
+                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся карточки метрик, мини-графики и uptime monitor.</div>
                     </div>
                 </div>
             </div>
@@ -78,4 +100,117 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+{% block scripts %}
+{% if snapshot %}
+<script>
+const sparklineConfig = {
+  T1: "#f97316",
+  T2: "#2563eb",
+  T3: "#0ea5e9",
+  T4: "#7c3aed",
+  T5: "#6366f1",
+  T6: "#4f46e5",
+  RH: "#059669",
+  H1: "#10b981",
+  H2: "#14b8a6",
+  PRESS: "#d97706",
+  HPA: "#ca8a04",
+  WS: "#2563eb",
+  WS1: "#64748b",
+  PM2: "#dc2626",
+  PM10: "#6b7280",
+  RAIN2: "#0284c7"
+};
+
+function isDarkTheme() {
+  return document.documentElement.getAttribute("data-bs-theme") === "dark";
+}
+
+function axisColor() {
+  return isDarkTheme() ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.45)";
+}
+
+function buildSparkline(elementId, points, color) {
+  const target = document.getElementById(elementId);
+  if (!target || !Array.isArray(points) || points.length < 2) return;
+  new Chart(target, {
+    type: "line",
+    data: {
+      labels: points.map((_, i) => i + 1),
+      datasets: [{
+        data: points,
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.35,
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { display: false },
+        y: { display: false, grid: { color: axisColor() } }
+      }
+    }
+  });
+}
+
+function buildUptimeChart(payload) {
+  const target = document.getElementById("uptime-chart");
+  if (!target || !payload || !Array.isArray(payload.points)) return;
+  new Chart(target, {
+    type: "bar",
+    data: {
+      labels: payload.labels,
+      datasets: [{
+        data: payload.points,
+        backgroundColor: payload.points.map((v) => (v > 0 ? "#22c55e" : "#cbd5e1")),
+        borderWidth: 0,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: true } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+        y: { beginAtZero: true, grid: { color: axisColor() }, ticks: { precision: 0 } }
+      }
+    }
+  });
+}
+
+fetch("/api/chart-data?days=1")
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
+  .then((payload) => {
+    const series = payload.series || {};
+    document.querySelectorAll(".metric-sparkline").forEach((canvas) => {
+      const sid = canvas.id.replace("spark-", "").toUpperCase();
+      const aliases = [sid];
+      if (sid === "RH") aliases.push("H1", "H2");
+      if (sid === "PRESS") aliases.push("HPA");
+
+      let points = [];
+      for (const id of aliases) {
+        if (series[id] && Array.isArray(series[id].points) && series[id].points.length > 1) {
+          points = series[id].points.map((point) => point.y);
+          break;
+        }
+      }
+      buildSparkline(canvas.id, points, sparklineConfig[sid] || "#2563eb");
+    });
+  })
+  .catch(() => {});
+
+fetch("/api/uptime?hours=24")
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
+  .then((payload) => buildUptimeChart(payload))
+  .catch(() => {});
+</script>
+{% endif %}
 {% endblock %}

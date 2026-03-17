@@ -99,6 +99,22 @@ function datasetByIds(series, ids, color, fallbackLabel) {
   return null;
 }
 
+function isDarkTheme() {
+  return document.documentElement.getAttribute("data-bs-theme") === "dark";
+}
+
+function axisColor() {
+  return isDarkTheme() ? "#9eb0c7" : "#667382";
+}
+
+function gridColor() {
+  return isDarkTheme() ? "rgba(148, 163, 184, 0.2)" : "rgba(145, 158, 171, 0.2)";
+}
+
+function legendColor() {
+  return isDarkTheme() ? "#f1f5f9" : "#334155";
+}
+
 function createChart(elementId, datasets) {
   const target = document.getElementById(elementId);
   const filtered = datasets.filter(Boolean);
@@ -116,16 +132,16 @@ function createChart(elementId, datasets) {
         x: {
           type: "time",
           time: { tooltipFormat: "yyyy-MM-dd HH:mm" },
-          ticks: { color: "#667382" },
-          grid: { color: "rgba(145, 158, 171, 0.2)" }
+          ticks: { color: axisColor() },
+          grid: { color: gridColor() }
         },
         y: {
-          ticks: { color: "#667382" },
-          grid: { color: "rgba(145, 158, 171, 0.2)" }
+          ticks: { color: axisColor() },
+          grid: { color: gridColor() }
         }
       },
       plugins: {
-        legend: { labels: { color: "#334155" } }
+        legend: { labels: { color: legendColor() } }
       }
     }
   });

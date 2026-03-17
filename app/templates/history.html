@@ -7,7 +7,7 @@
             <div class="col">
                 <div class="page-pretitle">Архив</div>
                 <h2 class="page-title">История за выбранный день</h2>
-                <div class="text-secondary mt-1">Выберите дату и просмотрите все пакеты телеметрии за этот день.</div>
+                <div class="text-secondary mt-1">Показываем агрегированные записи: дата, время, температура, влажность, давление и остальные данные.</div>
             </div>
             <div class="col-auto ms-auto d-print-none">
                 <form class="d-flex gap-2" method="get" action="/history">
@@ -22,39 +22,33 @@
 <div class="page-body">
     <div class="container-xl">
         {% if items %}
-        <div class="row row-cards">
-            {% for item in items %}
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title">{{ item.received_at }}</h3>
-                        <div class="card-actions">
-                            <span class="badge badge-outline text-blue">{{ item.device_mac }}</span>
-                        </div>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-vcenter card-table">
-                            <thead>
-                                <tr>
-                                    <th>Датчик</th>
-                                    <th>Код</th>
-                                    <th class="text-end">Значение</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for reading in item.readings %}
-                                <tr>
-                                    <td>{{ reading.sensor_name }}</td>
-                                    <td><code>{{ reading.sensor_id }}</code></td>
-                                    <td class="text-end">{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Время</th>
+                            <th>Температура</th>
+                            <th>Влажность</th>
+                            <th>Давление</th>
+                            <th>Остальные данные</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td>{{ item.date }}</td>
+                            <td>{{ item.time }}</td>
+                            <td>{{ item.temperature }}</td>
+                            <td>{{ item.humidity }}</td>
+                            <td>{{ item.pressure }}</td>
+                            <td class="history-other">{{ item.other_data }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
-            {% endfor %}
         </div>
         {% else %}
         <div class="empty">

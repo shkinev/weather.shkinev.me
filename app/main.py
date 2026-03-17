@@ -3,18 +3,24 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .db import get_chart_series, get_history_for_date, get_latest_snapshot, init_db, save_payload
+from .config import WEATHER_TIMEZONE
+from .db import get_chart_series, get_history_for_date, get_latest_snapshot, get_uptime_monitor, init_db, save_payload
 
 
 app = FastAPI(title="Weather Station", version="1.0.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+try:
+    APP_TZ = ZoneInfo(WEATHER_TIMEZONE)
+except ZoneInfoNotFoundError:
+    APP_TZ = UTC
 
 
 @app.on_event("startup")
@@ -25,11 +31,13 @@ def on_startup() -> None:
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request) -> HTMLResponse:
     snapshot = get_latest_snapshot()
+    uptime = get_uptime_monitor(24)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "snapshot": snapshot,
+            "uptime": uptime,
         },
     )
 
@@ -45,7 +53,7 @@ def charts_page(request: Request, days: int = 1) -> HTMLResponse:
 
 @app.get("/history", response_class=HTMLResponse)
 def history_page(request: Request, day: str | None = None) -> HTMLResponse:
-    selected_day = day or datetime.now(UTC).date().isoformat()
+    selected_day = day or datetime.now(APP_TZ).date().isoformat()
     items = get_history_for_date(selected_day)
     return templates.TemplateResponse(
         "history.html",
@@ -79,6 +87,11 @@ def current_weather() -> JSONResponse:
 @app.get("/api/chart-data")
 def chart_data(days: int = 1) -> JSONResponse:
     return JSONResponse(get_chart_series(days))
+
+
+@app.get("/api/uptime")
+def api_uptime(hours: int = 24) -> JSONResponse:
+    return JSONResponse(get_uptime_monitor(hours))
 
 
 def _favicon_temp(snapshot: dict[str, Any] | None) -> float | None:

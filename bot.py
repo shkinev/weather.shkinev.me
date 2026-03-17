@@ -9,7 +9,7 @@ from app.config import TELEGRAM_BOT_TOKEN
 from app.db import format_telegram_snapshot, get_latest_snapshot, init_db
 
 
-WEATHER_BUTTON = "Текущая погода"
+WEATHER_BUTTON = "Погода сейчас"
 
 
 def keyboard() -> ReplyKeyboardMarkup:
@@ -23,7 +23,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
     await update.message.reply_text(
-        "Нажмите кнопку, чтобы получить последние показания метеостанции.",
+        "Нажмите кнопку, чтобы получить актуальную сводку погоды.",
         reply_markup=keyboard(),
     )
 
