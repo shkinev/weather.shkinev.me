@@ -12,7 +12,15 @@ from fastapi.templating import Jinja2Templates
 from loguru import logger
 
 from .config import WEATHER_TIMEZONE
-from .db import get_chart_series, get_history_for_date, get_latest_snapshot, get_uptime_monitor, init_db, save_payload
+from .db import (
+    get_chart_series,
+    get_history_for_date,
+    get_latest_snapshot,
+    get_today_temperature_extremes,
+    get_uptime_monitor,
+    init_db,
+    save_payload,
+)
 from .logging_setup import setup_logging
 
 
@@ -48,12 +56,14 @@ async def log_requests(request: Request, call_next):
 def dashboard(request: Request) -> HTMLResponse:
     snapshot = get_latest_snapshot()
     uptime = get_uptime_monitor(24)
+    temp_extremes = get_today_temperature_extremes()
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "snapshot": snapshot,
             "uptime": uptime,
+            "temp_extremes": temp_extremes,
         },
     )
 

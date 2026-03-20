@@ -42,7 +42,39 @@
         </div>
 
         <div class="row row-cards mt-2">
-            <div class="col-lg-5">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Температура за сегодня (T1)</h3>
+                        <div class="card-actions">
+                            <span class="badge badge-outline">{{ temp_extremes.date }}</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        {% if temp_extremes.min and temp_extremes.max %}
+                        <div class="d-flex flex-column gap-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="text-secondary">Минимум</div>
+                                <div class="text-end">
+                                    <div class="fs-2 fw-bold text-blue">{{ "%.2f"|format(temp_extremes.min.value) }} {{ temp_extremes.min.unit }}</div>
+                                    <div class="text-secondary">в {{ temp_extremes.min.time }}</div>
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="text-secondary">Максимум</div>
+                                <div class="text-end">
+                                    <div class="fs-2 fw-bold text-orange">{{ "%.2f"|format(temp_extremes.max.value) }} {{ temp_extremes.max.unit }}</div>
+                                    <div class="text-secondary">в {{ temp_extremes.max.time }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="text-secondary">За сегодня по T1 данных пока нет.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Uptime Monitor</h3>
@@ -57,7 +89,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-lg-7">
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Все доступные датчики</h3>
@@ -92,7 +124,7 @@
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title">Телеметрия еще не поступала</h3>
-                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся карточки метрик, мини-графики и uptime monitor.</div>
+                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся карточки метрик, мини-графики, экстремумы температуры и uptime monitor.</div>
                     </div>
                 </div>
             </div>

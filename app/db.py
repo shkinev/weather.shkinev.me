@@ -377,6 +377,57 @@ def get_uptime_monitor(hours: int = 24) -> dict[str, Any]:
     }
 
 
+def get_today_temperature_extremes() -> dict[str, Any]:
+    now_local = datetime.now(LOCAL_TZ)
+    day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end_local = day_start_local + timedelta(days=1)
+    day_start_utc = day_start_local.astimezone(UTC).isoformat()
+    day_end_utc = day_end_local.astimezone(UTC).isoformat()
+
+    with get_connection() as connection:
+        min_row = connection.execute(
+            """
+            SELECT observed_at, value, unit
+            FROM observations
+            WHERE upper(sensor_id) = 'T1'
+              AND julianday(observed_at) >= julianday(?)
+              AND julianday(observed_at) < julianday(?)
+            ORDER BY value ASC, observed_at ASC
+            LIMIT 1
+            """,
+            (day_start_utc, day_end_utc),
+        ).fetchone()
+        max_row = connection.execute(
+            """
+            SELECT observed_at, value, unit
+            FROM observations
+            WHERE upper(sensor_id) = 'T1'
+              AND julianday(observed_at) >= julianday(?)
+              AND julianday(observed_at) < julianday(?)
+            ORDER BY value DESC, observed_at ASC
+            LIMIT 1
+            """,
+            (day_start_utc, day_end_utc),
+        ).fetchone()
+
+    def serialize(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not row:
+            return None
+        local_time = to_local_timestamp(row["observed_at"])
+        return {
+            "value": row["value"],
+            "unit": row["unit"] or "°C",
+            "time": local_time.strftime("%H:%M"),
+            "datetime_local": local_time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    return {
+        "date": day_start_local.strftime("%Y-%m-%d"),
+        "min": serialize(min_row),
+        "max": serialize(max_row),
+    }
+
+
 def _reading_emoji(sensor_id: str) -> str:
     sid = sensor_id.upper()
     if sid.startswith("T"):
