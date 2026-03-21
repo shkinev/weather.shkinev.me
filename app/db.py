@@ -462,4 +462,17 @@ def format_telegram_snapshot(snapshot: dict[str, Any] | None) -> str:
         unit = f" {reading['unit']}" if reading["unit"] else ""
         lines.append(f"{_reading_emoji(reading['sensor_id'])} {reading['sensor_name']}: {reading['value']:.2f}{unit}")
 
+    extremes = get_today_temperature_extremes()
+    if extremes.get("min") and extremes.get("max"):
+        t_min = extremes["min"]
+        t_max = extremes["max"]
+        lines.extend(
+            [
+                "",
+                "📉📈 T1 за сегодня:",
+                f"Мин: {t_min['value']:.2f} {t_min['unit']} в {t_min['time']}",
+                f"Макс: {t_max['value']:.2f} {t_max['unit']} в {t_max['time']}",
+            ]
+        )
+
     return "\n".join(lines)
