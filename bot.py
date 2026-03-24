@@ -43,16 +43,18 @@ def current_weather_text() -> str:
 
 
 def build_dynamic_bot_name(snapshot: dict | None) -> str:
-    suffix = "нет данных"
+    suffix = "⚪ --"
     if snapshot:
         for reading in snapshot.get("readings", []):
             if str(reading.get("sensor_id", "")).upper() == "T1":
                 try:
-                    suffix = f"{float(reading['value']):.2f} С"
+                    temperature = float(reading["value"])
+                    icon = "☀️" if temperature >= 0 else "❄️"
+                    suffix = f"{icon} {temperature:+.1f}°"
                 except (TypeError, ValueError, KeyError):
-                    suffix = "нет данных"
+                    suffix = "⚪ --"
                 break
-    title = f"{TELEGRAM_DYNAMIC_NAME_PREFIX} - {suffix}"
+    title = f"{TELEGRAM_DYNAMIC_NAME_PREFIX} • {suffix}"
     if len(title) > 64:
         title = title[:64].rstrip()
     return title
