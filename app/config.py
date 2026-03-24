@@ -36,6 +36,13 @@ def _parse_times(value: str) -> list[str]:
     return result
 
 
+def _parse_bool(value: str, default: bool = False) -> bool:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on", "y", "да"}
+
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = Path(os.getenv("WEATHER_DB_PATH", BASE_DIR / "weather.sqlite3"))
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -47,3 +54,6 @@ TELEGRAM_DAILY_USER_IDS = _parse_int_list(os.getenv("TELEGRAM_DAILY_USER_IDS", "
 TELEGRAM_DAILY_TIMES = _parse_times(os.getenv("TELEGRAM_DAILY_TIMES", "07:00,20:00"))
 TELEGRAM_STALE_MINUTES = int(os.getenv("TELEGRAM_STALE_MINUTES", "5"))
 TELEGRAM_MONITOR_INTERVAL_SECONDS = int(os.getenv("TELEGRAM_MONITOR_INTERVAL_SECONDS", "60"))
+TELEGRAM_DYNAMIC_NAME_ENABLED = _parse_bool(os.getenv("TELEGRAM_DYNAMIC_NAME_ENABLED", "1"), default=True)
+TELEGRAM_DYNAMIC_NAME_PREFIX = os.getenv("TELEGRAM_DYNAMIC_NAME_PREFIX", 'Погода в КП "Аист"').strip() or 'Погода в КП "Аист"'
+TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES = int(os.getenv("TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES", "10"))

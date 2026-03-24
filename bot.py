@@ -13,6 +13,9 @@ from app.config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_DAILY_TIMES,
     TELEGRAM_DAILY_USER_IDS,
+    TELEGRAM_DYNAMIC_NAME_ENABLED,
+    TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES,
+    TELEGRAM_DYNAMIC_NAME_PREFIX,
     TELEGRAM_MONITOR_INTERVAL_SECONDS,
     TELEGRAM_STALE_MINUTES,
     WEATHER_TIMEZONE,
@@ -37,6 +40,22 @@ def keyboard() -> ReplyKeyboardMarkup:
 
 def current_weather_text() -> str:
     return format_telegram_snapshot(get_latest_snapshot())
+
+
+def build_dynamic_bot_name(snapshot: dict | None) -> str:
+    suffix = "нет данных"
+    if snapshot:
+        for reading in snapshot.get("readings", []):
+            if str(reading.get("sensor_id", "")).upper() == "T1":
+                try:
+                    suffix = f"{float(reading['value']):.2f} С"
+                except (TypeError, ValueError, KeyError):
+                    suffix = "нет данных"
+                break
+    title = f"{TELEGRAM_DYNAMIC_NAME_PREFIX} - {suffix}"
+    if len(title) > 64:
+        title = title[:64].rstrip()
+    return title
 
 
 async def send_text_to_chat(app: Application, chat_id: int, text: str) -> None:
@@ -154,6 +173,31 @@ async def daily_weather_broadcast_loop(app: Application) -> None:
         await asyncio.sleep(20)
 
 
+async def dynamic_bot_name_loop(app: Application) -> None:
+    if not TELEGRAM_DYNAMIC_NAME_ENABLED:
+        logger.info("Dynamic bot name disabled")
+        return
+
+    interval_minutes = max(1, TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES)
+    logger.info(
+        "Dynamic bot name started: every {} min, prefix={!r}",
+        interval_minutes,
+        TELEGRAM_DYNAMIC_NAME_PREFIX,
+    )
+    last_name = ""
+    while True:
+        try:
+            snapshot = get_latest_snapshot()
+            new_name = build_dynamic_bot_name(snapshot)
+            if new_name != last_name:
+                await app.bot.set_my_name(name=new_name)
+                logger.info("Bot name updated: {}", new_name)
+                last_name = new_name
+        except Exception:
+            logger.exception("Failed to update bot name")
+        await asyncio.sleep(interval_minutes * 60)
+
+
 def build_app() -> Application:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("Set TELEGRAM_BOT_TOKEN before starting the bot.")
@@ -177,12 +221,14 @@ async def main() -> None:
 
     monitor_task = asyncio.create_task(stale_data_monitor_loop(application))
     broadcast_task = asyncio.create_task(daily_weather_broadcast_loop(application))
+    dynamic_name_task = asyncio.create_task(dynamic_bot_name_loop(application))
     try:
         await asyncio.Event().wait()
     finally:
         monitor_task.cancel()
         broadcast_task.cancel()
-        await asyncio.gather(monitor_task, broadcast_task, return_exceptions=True)
+        dynamic_name_task.cancel()
+        await asyncio.gather(monitor_task, broadcast_task, dynamic_name_task, return_exceptions=True)
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
