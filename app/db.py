@@ -200,7 +200,7 @@ def get_latest_snapshot() -> dict[str, Any] | None:
             (batch["id"],),
         ).fetchall()
 
-    readings = []
+    readings: list[dict[str, Any]] = []
     lookup: dict[str, dict[str, Any]] = {}
     for row in rows:
         entry = {
@@ -445,22 +445,47 @@ def _reading_emoji(sensor_id: str) -> str:
     return "•"
 
 
+def _format_t1_title(snapshot: dict[str, Any]) -> str:
+    t1_reading: dict[str, Any] | None = None
+    for reading in snapshot.get("readings", []):
+        if str(reading.get("sensor_id", "")).upper() == "T1":
+            t1_reading = reading
+            break
+    if not t1_reading:
+        return "⚪ --"
+    try:
+        value = float(t1_reading["value"])
+    except (TypeError, ValueError, KeyError):
+        return "⚪ --"
+    icon = "☀️" if value >= 0 else "❄️"
+    return f"{icon} {value:+.1f}°"
+
+
+def _format_temp_with_icon(value: float) -> str:
+    icon = "☀️" if value >= 0 else "❄️"
+    return f"{icon} {value:+.2f}°"
+
+
 def format_telegram_snapshot(snapshot: dict[str, Any] | None) -> str:
     if not snapshot:
-        return "📭 Данных пока нет. Станция еще ничего не отправляла."
+        return '🏡 Погода в КП "Аист"\n⚪ --\n\n📭 Данных пока нет. Станция еще ничего не отправляла.'
 
     freshness = snapshot.get("received_freshness") or freshness_emoji(snapshot["received_at"])
     updated_ago = snapshot.get("received_ago") or format_relative_age(snapshot["received_at"])
-
     lines = [
-        "🌤️ Погода сейчас",
+        '🏡 Погода в КП "Аист"',
         f"🕒 Обновлено: {freshness} {updated_ago}",
         "",
+        "Показатели:",
     ]
 
     for reading in snapshot["primary_readings"]:
-        unit = f" {reading['unit']}" if reading["unit"] else ""
-        lines.append(f"{_reading_emoji(reading['sensor_id'])} {reading['sensor_name']}: {reading['value']:.2f}{unit}")
+        sensor_id = str(reading.get("sensor_id", "")).upper()
+        if sensor_id == "T1":
+            lines.append(f"{_reading_emoji(sensor_id)} {reading['sensor_name']}: {_format_temp_with_icon(float(reading['value']))}")
+        else:
+            unit = f" {reading['unit']}" if reading["unit"] else ""
+            lines.append(f"{_reading_emoji(sensor_id)} {reading['sensor_name']}: {reading['value']:.2f}{unit}")
 
     extremes = get_today_temperature_extremes()
     if extremes.get("min") and extremes.get("max"):
@@ -470,8 +495,8 @@ def format_telegram_snapshot(snapshot: dict[str, Any] | None) -> str:
             [
                 "",
                 "📉📈 T1 за сегодня:",
-                f"Мин: {t_min['value']:.2f} {t_min['unit']} в {t_min['time']}",
-                f"Макс: {t_max['value']:.2f} {t_max['unit']} в {t_max['time']}",
+                f"Мин: {_format_temp_with_icon(float(t_min['value']))} в {t_min['time']}",
+                f"Макс: {_format_temp_with_icon(float(t_max['value']))} в {t_max['time']}",
             ]
         )
 
