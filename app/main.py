@@ -13,9 +13,14 @@ from loguru import logger
 
 from .config import WEATHER_TIMEZONE
 from .db import (
+    get_anomaly_calendar,
     get_chart_series,
+    get_comfort_risk,
     get_history_for_date,
     get_latest_snapshot,
+    get_period_comparison,
+    get_station_status,
+    get_temperature_heatmap,
     get_today_temperature_extremes,
     get_uptime_monitor,
     init_db,
@@ -24,7 +29,7 @@ from .db import (
 from .logging_setup import setup_logging
 
 
-app = FastAPI(title="Weather Station", version="1.0.0")
+app = FastAPI(title="Weather Station", version="1.1.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 try:
@@ -57,6 +62,8 @@ def dashboard(request: Request) -> HTMLResponse:
     snapshot = get_latest_snapshot()
     uptime = get_uptime_monitor(24)
     temp_extremes = get_today_temperature_extremes()
+    comfort = get_comfort_risk(snapshot)
+    comparison = get_period_comparison()
     return templates.TemplateResponse(
         "index.html",
         {
@@ -64,6 +71,8 @@ def dashboard(request: Request) -> HTMLResponse:
             "snapshot": snapshot,
             "uptime": uptime,
             "temp_extremes": temp_extremes,
+            "comfort": comfort,
+            "comparison": comparison,
         },
     )
 
@@ -84,6 +93,15 @@ def history_page(request: Request, day: str | None = None) -> HTMLResponse:
     return templates.TemplateResponse(
         "history.html",
         {"request": request, "selected_day": selected_day, "items": items},
+    )
+
+
+@app.get("/station", response_class=HTMLResponse)
+def station_page(request: Request) -> HTMLResponse:
+    status = get_station_status()
+    return templates.TemplateResponse(
+        "station.html",
+        {"request": request, "status": status},
     )
 
 
@@ -118,6 +136,31 @@ def chart_data(days: int = 1) -> JSONResponse:
 @app.get("/api/uptime")
 def api_uptime(hours: int = 24) -> JSONResponse:
     return JSONResponse(get_uptime_monitor(hours))
+
+
+@app.get("/api/comfort-risk")
+def api_comfort_risk() -> JSONResponse:
+    return JSONResponse(get_comfort_risk())
+
+
+@app.get("/api/period-comparison")
+def api_period_comparison() -> JSONResponse:
+    return JSONResponse(get_period_comparison())
+
+
+@app.get("/api/temperature-heatmap")
+def api_temperature_heatmap(days: int = 30) -> JSONResponse:
+    return JSONResponse(get_temperature_heatmap(days))
+
+
+@app.get("/api/anomaly-calendar")
+def api_anomaly_calendar(month: str | None = None) -> JSONResponse:
+    return JSONResponse(get_anomaly_calendar(month))
+
+
+@app.get("/api/station-status")
+def api_station_status() -> JSONResponse:
+    return JSONResponse(get_station_status())
 
 
 def _favicon_temp(snapshot: dict[str, Any] | None) -> float | None:

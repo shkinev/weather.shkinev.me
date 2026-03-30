@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Сейчас | Метеостанция{% endblock %}
+{% block title %}Главная | Метеостанция{% endblock %}
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
 {% endblock %}
@@ -9,12 +9,20 @@
         <div class="row g-2 align-items-center">
             <div class="col">
                 <div class="page-pretitle">Локальная метеостанция</div>
-                <h2 class="page-title">Текущие погодные данные</h2>
+                <h2 class="page-title">Текущая погода</h2>
                 {% if snapshot %}
-                <div class="text-secondary mt-1">Последнее обновление: {{ snapshot.received_freshness }} {{ snapshot.received_ago }} ({{ snapshot.received_local }}).</div>
+                <div class="text-secondary mt-1">
+                    Обновлено: <span id="received-badge">{{ snapshot.received_freshness }} {{ snapshot.received_ago }}</span> ({{ snapshot.received_local }}).
+                </div>
                 {% else %}
                 <div class="text-secondary mt-1">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</div>
                 {% endif %}
+            </div>
+            <div class="col-auto">
+                <label class="form-check form-switch m-0">
+                    <input id="live-mode" class="form-check-input" type="checkbox">
+                    <span class="form-check-label">Живой режим</span>
+                </label>
             </div>
         </div>
     </div>
@@ -42,28 +50,45 @@
         </div>
 
         <div class="row row-cards mt-2">
-            <div class="col-lg-6">
-                <div class="card">
+            <div class="col-lg-4">
+                <div class="card h-100">
                     <div class="card-header">
-                        <h3 class="card-title">Температура за сегодня (T1)</h3>
+                        <h3 class="card-title">Комфорт/риск</h3>
                         <div class="card-actions">
-                            <span class="badge badge-outline">{{ temp_extremes.date }}</span>
+                            <span class="badge comfort-{{ comfort.level }}">{{ comfort.state }}</span>
                         </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-secondary mb-2">{{ comfort.description }}</div>
+                        <div class="d-flex flex-column gap-2 small">
+                            <div>Температура: <strong>{{ "%.2f"|format(comfort.temperature.value) }} {{ comfort.temperature.unit }}</strong></div>
+                            <div>Влажность: <strong>{{ "%.2f"|format(comfort.humidity.value) }} {{ comfort.humidity.unit }}</strong></div>
+                            <div>Давление: <strong>{{ "%.2f"|format(comfort.pressure.value) }} {{ comfort.pressure.unit }}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h3 class="card-title">Мин/макс T1 за сегодня</h3>
+                        <div class="card-actions"><span class="badge badge-outline">{{ temp_extremes.date }}</span></div>
                     </div>
                     <div class="card-body">
                         {% if temp_extremes.min and temp_extremes.max %}
                         <div class="d-flex flex-column gap-3">
-                            <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex justify-content-between">
                                 <div class="text-secondary">Минимум</div>
                                 <div class="text-end">
-                                    <div class="fs-2 fw-bold text-blue">{{ "%.2f"|format(temp_extremes.min.value) }} {{ temp_extremes.min.unit }}</div>
+                                    <div class="fw-bold text-blue">{{ "%.2f"|format(temp_extremes.min.value) }} {{ temp_extremes.min.unit }}</div>
                                     <div class="text-secondary">в {{ temp_extremes.min.time }}</div>
                                 </div>
                             </div>
-                            <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex justify-content-between">
                                 <div class="text-secondary">Максимум</div>
                                 <div class="text-end">
-                                    <div class="fs-2 fw-bold text-orange">{{ "%.2f"|format(temp_extremes.max.value) }} {{ temp_extremes.max.unit }}</div>
+                                    <div class="fw-bold text-orange">{{ "%.2f"|format(temp_extremes.max.value) }} {{ temp_extremes.max.unit }}</div>
                                     <div class="text-secondary">в {{ temp_extremes.max.time }}</div>
                                 </div>
                             </div>
@@ -74,7 +99,53 @@
                     </div>
                 </div>
             </div>
-            <div class="col-lg-6">
+
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h3 class="card-title">Сравнение периодов (T1)</h3>
+                    </div>
+                    <div class="card-body">
+                        {% if comparison.today %}
+                        <div class="small text-secondary mb-2">Сегодня ({{ comparison.today_date }}): средняя {{ "%.2f"|format(comparison.today.avg) }} °C</div>
+                        {% else %}
+                        <div class="small text-secondary mb-2">Сегодня данных по T1 пока нет.</div>
+                        {% endif %}
+                        <div class="table-responsive">
+                            <table class="table table-sm table-vcenter">
+                                <thead>
+                                    <tr>
+                                        <th>Период</th>
+                                        <th class="text-end">Средняя</th>
+                                        <th class="text-end">Δ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in comparison.rows %}
+                                    <tr>
+                                        <td>{{ row.label }}</td>
+                                        <td class="text-end">
+                                            {% if row.stats %}{{ "%.2f"|format(row.stats.avg) }} °C{% else %}—{% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            {% if row.delta_avg is not none %}
+                                                <span class="{% if row.delta_avg > 0 %}text-red{% elif row.delta_avg < 0 %}text-blue{% else %}text-secondary{% endif %}">
+                                                    {{ "%+.2f"|format(row.delta_avg) }} °C
+                                                </span>
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">Uptime Monitor</h3>
@@ -89,34 +160,6 @@
                     </div>
                 </div>
             </div>
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title">Все доступные датчики</h3>
-                        <div class="card-actions text-secondary">{{ snapshot.readings|length }} показаний</div>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-vcenter card-table">
-                            <thead>
-                                <tr>
-                                    <th>Датчик</th>
-                                    <th>Код</th>
-                                    <th class="text-end">Значение</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for reading in snapshot.readings %}
-                                <tr>
-                                    <td>{{ reading.sensor_name }}</td>
-                                    <td><code>{{ reading.sensor_id }}</code></td>
-                                    <td class="text-end">{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
         </div>
         {% else %}
         <div class="row row-cards">
@@ -124,7 +167,7 @@
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title">Телеметрия еще не поступала</h3>
-                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся карточки метрик, мини-графики, экстремумы температуры и uptime monitor.</div>
+                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся карточки и аналитика.</div>
                     </div>
                 </div>
             </div>
@@ -138,21 +181,12 @@
 <script>
 const sparklineConfig = {
   T1: "#f97316",
-  T2: "#2563eb",
-  T3: "#0ea5e9",
-  T4: "#7c3aed",
-  T5: "#6366f1",
-  T6: "#4f46e5",
   RH: "#059669",
-  H1: "#10b981",
-  H2: "#14b8a6",
   PRESS: "#d97706",
-  HPA: "#ca8a04",
   WS: "#2563eb",
-  WS1: "#64748b",
+  RAIN2: "#0284c7",
   PM2: "#dc2626",
-  PM10: "#6b7280",
-  RAIN2: "#0284c7"
+  PM10: "#6b7280"
 };
 
 function isDarkTheme() {
@@ -242,20 +276,9 @@ fetch("/api/chart-data?days=1")
     const series = payload.series || {};
     document.querySelectorAll(".metric-sparkline").forEach((canvas) => {
       const sid = canvas.id.replace("spark-", "").toUpperCase();
-      const aliases = [sid];
-      if (sid === "RH") aliases.push("H1", "H2");
-      if (sid === "PRESS") aliases.push("HPA");
-
-      let points = [];
-      let unit = "";
-      for (const id of aliases) {
-        if (series[id] && Array.isArray(series[id].points) && series[id].points.length > 1) {
-          points = series[id].points;
-          unit = series[id].unit || "";
-          break;
-        }
-      }
-      buildSparkline(canvas.id, points, sparklineConfig[sid] || "#2563eb", unit);
+      const item = series[sid];
+      if (!item || !Array.isArray(item.points) || item.points.length < 2) return;
+      buildSparkline(canvas.id, item.points, sparklineConfig[sid] || "#2563eb", item.unit || "");
     });
   })
   .catch(() => {});
@@ -264,6 +287,32 @@ fetch("/api/uptime?hours=24")
   .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
   .then((payload) => buildUptimeChart(payload))
   .catch(() => {});
+
+(function () {
+  const liveModeEl = document.getElementById("live-mode");
+  if (!liveModeEl) return;
+  let timer = null;
+
+  const saved = localStorage.getItem("live-mode") === "1";
+  liveModeEl.checked = saved;
+
+  const start = () => {
+    if (timer) return;
+    timer = setInterval(() => window.location.reload(), 30000);
+  };
+  const stop = () => {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+  };
+  if (saved) start();
+
+  liveModeEl.addEventListener("change", () => {
+    const enabled = liveModeEl.checked;
+    localStorage.setItem("live-mode", enabled ? "1" : "0");
+    if (enabled) start(); else stop();
+  });
+})();
 </script>
 {% endif %}
 {% endblock %}

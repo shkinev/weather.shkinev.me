@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -15,6 +15,11 @@ try:
     LOCAL_TZ = ZoneInfo(WEATHER_TIMEZONE)
 except ZoneInfoNotFoundError:
     LOCAL_TZ = UTC
+
+
+TEMPERATURE_SENSOR_IDS = ("T1", "T2", "T3", "T4", "T5", "T6")
+HUMIDITY_SENSOR_IDS = ("RH", "H1", "H2")
+PRESSURE_SENSOR_IDS = ("PRESS", "HPA")
 
 
 def dict_factory(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> dict[str, Any]:
@@ -81,6 +86,12 @@ def parse_timestamp(value: str) -> datetime:
 
 def to_local_timestamp(value: str) -> datetime:
     return parse_timestamp(value).astimezone(LOCAL_TZ)
+
+
+def _local_day_bounds(target_day: date) -> tuple[str, str]:
+    start_local = datetime.combine(target_day, datetime.min.time(), tzinfo=LOCAL_TZ)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(UTC).isoformat(), end_local.astimezone(UTC).isoformat()
 
 
 def format_relative_age(value: str, now: datetime | None = None) -> str:
@@ -226,6 +237,93 @@ def get_latest_snapshot() -> dict[str, Any] | None:
     }
 
 
+def _reading_value(snapshot: dict[str, Any] | None, ids: tuple[str, ...]) -> float | None:
+    if not snapshot:
+        return None
+    lookup = {str(item.get("sensor_id", "")).upper(): item for item in snapshot.get("readings", [])}
+    for sid in ids:
+        item = lookup.get(sid)
+        if not item:
+            continue
+        try:
+            return float(item["value"])
+        except (TypeError, ValueError, KeyError):
+            continue
+    return None
+
+
+def get_comfort_risk(snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
+    current = snapshot or get_latest_snapshot()
+    if not current:
+        return {
+            "level": "risk",
+            "state": "Нет данных",
+            "description": "Станция еще не передавала телеметрию.",
+            "score": 0,
+            "reasons": ["Нет телеметрии"],
+            "temperature": {"value": 0.0, "unit": "°C"},
+            "humidity": {"value": 0.0, "unit": "%"},
+            "pressure": {"value": 0.0, "unit": "мм рт. ст."},
+        }
+
+    reasons: list[str] = []
+    score = 100
+
+    t1 = _reading_value(current, TEMPERATURE_SENSOR_IDS)
+    rh = _reading_value(current, HUMIDITY_SENSOR_IDS)
+    press = _reading_value(current, PRESSURE_SENSOR_IDS)
+
+    if t1 is None:
+        reasons.append("Нет температуры")
+        score -= 25
+    elif t1 < 16 or t1 > 28:
+        reasons.append(f"Температура вне комфорта: {t1:.1f}°C")
+        score -= 20
+
+    if rh is None:
+        reasons.append("Нет влажности")
+        score -= 20
+    elif rh < 30 or rh > 65:
+        reasons.append(f"Влажность вне комфорта: {rh:.0f}%")
+        score -= 20
+
+    if press is None:
+        reasons.append("Нет давления")
+        score -= 10
+    elif press < 730 or press > 780:
+        reasons.append(f"Давление нестабильное: {press:.1f} мм рт. ст.")
+        score -= 15
+
+    score = max(0, min(100, score))
+    if score >= 70:
+        level = "good"
+        state = "Комфортно"
+        risk = "Низкий риск"
+    elif score >= 40:
+        level = "watch"
+        state = "Требует внимания"
+        risk = "Средний риск"
+    else:
+        level = "risk"
+        state = "Некомфортно"
+        risk = "Высокий риск"
+
+    if not reasons:
+        reasons = ["Показатели в норме"]
+
+    return {
+        "level": level,
+        "state": state,
+        "description": f"{risk}. " + "; ".join(reasons),
+        "risk": risk,
+        "score": score,
+        "reasons": reasons,
+        "temperature": {"value": t1 if t1 is not None else 0.0, "unit": "°C"},
+        "humidity": {"value": rh if rh is not None else 0.0, "unit": "%"},
+        "pressure": {"value": press if press is not None else 0.0, "unit": "мм рт. ст."},
+    }
+
+
 def get_chart_series(days: int) -> dict[str, Any]:
     period = max(1, min(days, 90))
     with get_connection() as connection:
@@ -318,9 +416,9 @@ def get_history_for_date(target_date: str) -> list[dict[str, Any]]:
                 **item,
                 "date": local_dt.strftime("%Y-%m-%d"),
                 "time": local_dt.strftime("%H:%M:%S"),
-                "temperature": _value_by_ids(reading_lookup, ("T1", "T2", "T3", "T4", "T5", "T6")),
-                "humidity": _value_by_ids(reading_lookup, ("RH", "H1", "H2")),
-                "pressure": _value_by_ids(reading_lookup, ("PRESS", "HPA")),
+                "temperature": _value_by_ids(reading_lookup, TEMPERATURE_SENSOR_IDS),
+                "humidity": _value_by_ids(reading_lookup, HUMIDITY_SENSOR_IDS),
+                "pressure": _value_by_ids(reading_lookup, PRESSURE_SENSOR_IDS),
                 "other_data": " | ".join(extra) if extra else "—",
             }
         )
@@ -329,7 +427,7 @@ def get_history_for_date(target_date: str) -> list[dict[str, Any]]:
 
 
 def get_uptime_monitor(hours: int = 24) -> dict[str, Any]:
-    period = max(6, min(hours, 72))
+    period = max(6, min(hours, 168))
     now_utc = datetime.now(UTC)
     start_utc = now_utc - timedelta(hours=period)
 
@@ -428,6 +526,252 @@ def get_today_temperature_extremes() -> dict[str, Any]:
     }
 
 
+def _period_stats_t1(start_utc: str, end_utc: str) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS cnt,
+                MIN(value) AS min_v,
+                MAX(value) AS max_v,
+                AVG(value) AS avg_v
+            FROM observations
+            WHERE upper(sensor_id) = 'T1'
+              AND julianday(observed_at) >= julianday(?)
+              AND julianday(observed_at) < julianday(?)
+            """,
+            (start_utc, end_utc),
+        ).fetchone()
+    if not row or int(row["cnt"] or 0) == 0:
+        return None
+    return {
+        "count": int(row["cnt"]),
+        "min": float(row["min_v"]),
+        "max": float(row["max_v"]),
+        "avg": float(row["avg_v"]),
+        "amp": float(row["max_v"]) - float(row["min_v"]),
+    }
+
+
+def get_period_comparison() -> dict[str, Any]:
+    today_local = datetime.now(LOCAL_TZ).date()
+    periods = [
+        ("Вчера", today_local - timedelta(days=1)),
+        ("Месяц назад", today_local - timedelta(days=30)),
+        ("Год назад", today_local - timedelta(days=365)),
+    ]
+
+    today_start, today_end = _local_day_bounds(today_local)
+    today_stats = _period_stats_t1(today_start, today_end)
+
+    rows = []
+    for label, day in periods:
+        s, e = _local_day_bounds(day)
+        stats = _period_stats_t1(s, e)
+        delta_avg = None
+        if today_stats and stats:
+            delta_avg = today_stats["avg"] - stats["avg"]
+        rows.append(
+            {
+                "label": label,
+                "date": day.isoformat(),
+                "stats": stats,
+                "delta_avg": delta_avg,
+            }
+        )
+
+    return {
+        "today_date": today_local.isoformat(),
+        "today": today_stats,
+        "rows": rows,
+    }
+
+
+def get_temperature_heatmap(days: int = 30) -> dict[str, Any]:
+    period = max(7, min(days, 90))
+    today_local = datetime.now(LOCAL_TZ).date()
+    start_day = today_local - timedelta(days=period - 1)
+    start_utc, _ = _local_day_bounds(start_day)
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT observed_at, value
+            FROM observations
+            WHERE upper(sensor_id) = 'T1'
+              AND julianday(observed_at) >= julianday(?)
+            ORDER BY observed_at ASC
+            """,
+            (start_utc,),
+        ).fetchall()
+
+    bucket: dict[str, dict[int, list[float]]] = {}
+    for row in rows:
+        local_dt = to_local_timestamp(row["observed_at"])
+        day_key = local_dt.date().isoformat()
+        day_bucket = bucket.setdefault(day_key, {h: [] for h in range(24)})
+        day_bucket[local_dt.hour].append(float(row["value"]))
+
+    labels: list[str] = []
+    matrix: list[list[float | None]] = []
+    for i in range(period):
+        day = start_day + timedelta(days=i)
+        day_key = day.isoformat()
+        labels.append(day_key)
+        hours = []
+        src = bucket.get(day_key, {})
+        for h in range(24):
+            vals = src.get(h, [])
+            hours.append(round(sum(vals) / len(vals), 2) if vals else None)
+        matrix.append(hours)
+
+    return {
+        "labels": labels,
+        "hours": [f"{h:02d}:00" for h in range(24)],
+        "matrix": matrix,
+    }
+
+
+def get_anomaly_calendar(month: str | None = None) -> dict[str, Any]:
+    now_local = datetime.now(LOCAL_TZ)
+    if month:
+        try:
+            month_start = datetime.strptime(month + "-01", "%Y-%m-%d").replace(tzinfo=LOCAL_TZ)
+        except ValueError:
+            month_start = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        month_start = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    if month_start.month == 12:
+        next_month = month_start.replace(year=month_start.year + 1, month=1)
+    else:
+        next_month = month_start.replace(month=month_start.month + 1)
+
+    days_count = (next_month.date() - month_start.date()).days
+    days: list[dict[str, Any]] = []
+
+    for idx in range(days_count):
+        day = month_start.date() + timedelta(days=idx)
+        s, e = _local_day_bounds(day)
+        stats = _period_stats_t1(s, e)
+
+        with get_connection() as connection:
+            packets = connection.execute(
+                """
+                SELECT received_at
+                FROM ingest_batches
+                WHERE julianday(received_at) >= julianday(?)
+                  AND julianday(received_at) < julianday(?)
+                ORDER BY received_at ASC
+                """,
+                (s, e),
+            ).fetchall()
+
+        gaps = 0
+        prev_dt: datetime | None = None
+        for row in packets:
+            dt = parse_timestamp(row["received_at"])
+            if prev_dt and (dt - prev_dt).total_seconds() > 30 * 60:
+                gaps += 1
+            prev_dt = dt
+
+        level = "ok"
+        reasons: list[str] = []
+        if stats:
+            if stats["min"] < -25 or stats["max"] > 35:
+                level = "high"
+                reasons.append("Экстремальная температура")
+            elif stats["amp"] > 15:
+                level = "medium"
+                reasons.append("Резкий суточный перепад")
+        if gaps >= 3:
+            level = "high"
+            reasons.append("Много пропусков данных")
+        elif gaps > 0 and level == "ok":
+            level = "medium"
+            reasons.append("Есть пропуски данных")
+
+        days.append(
+            {
+                "date": day.isoformat(),
+                "day": day.day,
+                "level": level,
+                "reasons": reasons,
+                "has_data": bool(stats),
+            }
+        )
+
+    return {
+        "month": month_start.strftime("%Y-%m"),
+        "days": days,
+    }
+
+
+def get_station_status() -> dict[str, Any]:
+    snapshot = get_latest_snapshot()
+    now = datetime.now(UTC)
+    day_ago = (now - timedelta(days=1)).isoformat()
+    week_ago = (now - timedelta(days=7)).isoformat()
+
+    with get_connection() as connection:
+        packets_24h = connection.execute(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM ingest_batches
+            WHERE julianday(received_at) >= julianday(?)
+            """,
+            (day_ago,),
+        ).fetchone()["cnt"]
+        packets_7d = connection.execute(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM ingest_batches
+            WHERE julianday(received_at) >= julianday(?)
+            """,
+            (week_ago,),
+        ).fetchone()["cnt"]
+        recent = connection.execute(
+            """
+            SELECT received_at
+            FROM ingest_batches
+            WHERE julianday(received_at) >= julianday(?)
+            ORDER BY received_at ASC
+            """,
+            (day_ago,),
+        ).fetchall()
+
+    avg_interval = None
+    gaps = 0
+    if len(recent) >= 2:
+        intervals: list[float] = []
+        prev = parse_timestamp(recent[0]["received_at"])
+        for row in recent[1:]:
+            cur = parse_timestamp(row["received_at"])
+            delta_min = (cur - prev).total_seconds() / 60.0
+            intervals.append(delta_min)
+            if delta_min > 30:
+                gaps += 1
+            prev = cur
+        avg_interval = round(sum(intervals) / len(intervals), 1) if intervals else None
+
+    missing_primary = []
+    if snapshot:
+        present = {str(r.get("sensor_id", "")).upper() for r in snapshot.get("readings", [])}
+        missing_primary = [sid for sid in PRIMARY_SENSOR_IDS if sid not in present]
+
+    return {
+        "last_seen": snapshot["received_local"] if snapshot else "нет данных",
+        "last_seen_ago": snapshot["received_ago"] if snapshot else "нет данных",
+        "freshness": snapshot["received_freshness"] if snapshot else "⚪",
+        "packets_24h": int(packets_24h or 0),
+        "packets_7d": int(packets_7d or 0),
+        "avg_interval_min": avg_interval,
+        "gaps_24h": gaps,
+        "sensor_count": len(snapshot.get("readings", [])) if snapshot else 0,
+        "missing_primary": missing_primary,
+    }
+
+
 def _reading_emoji(sensor_id: str) -> str:
     sid = sensor_id.upper()
     if sid.startswith("T"):
@@ -443,22 +787,6 @@ def _reading_emoji(sensor_id: str) -> str:
     if sid.startswith("PM"):
         return "🌫️"
     return "•"
-
-
-def _format_t1_title(snapshot: dict[str, Any]) -> str:
-    t1_reading: dict[str, Any] | None = None
-    for reading in snapshot.get("readings", []):
-        if str(reading.get("sensor_id", "")).upper() == "T1":
-            t1_reading = reading
-            break
-    if not t1_reading:
-        return "⚪ --"
-    try:
-        value = float(t1_reading["value"])
-    except (TypeError, ValueError, KeyError):
-        return "⚪ --"
-    icon = "☀️" if value >= 0 else "❄️"
-    return f"{icon} {value:+.1f}°"
 
 
 def _format_temp_with_icon(value: float) -> str:

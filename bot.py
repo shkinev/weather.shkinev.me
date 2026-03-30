@@ -71,7 +71,11 @@ async def send_text_to_chat(app: Application, chat_id: int, text: str) -> None:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
-    logger.info("Telegram /start user_id={} chat_id={}", update.effective_user.id if update.effective_user else "?", update.effective_chat.id if update.effective_chat else "?")
+    logger.info(
+        "Telegram /start user_id={} chat_id={}",
+        update.effective_user.id if update.effective_user else "?",
+        update.effective_chat.id if update.effective_chat else "?",
+    )
     await update.message.reply_text(
         "Нажмите кнопку, чтобы получить актуальную сводку погоды.",
         reply_markup=keyboard(),
@@ -170,7 +174,6 @@ async def daily_weather_broadcast_loop(app: Application) -> None:
                     await send_text_to_chat(app, user_id, payload)
                 sent_keys.add(key)
 
-        # keep only today's keys
         today_prefix = f"{now_local.date().isoformat()}-"
         sent_keys = {key for key in sent_keys if key.startswith(today_prefix)}
         await asyncio.sleep(20)
