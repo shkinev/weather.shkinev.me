@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from loguru import logger
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.config import (
@@ -18,6 +18,7 @@ from app.config import (
     TELEGRAM_DYNAMIC_NAME_PREFIX,
     TELEGRAM_MONITOR_INTERVAL_SECONDS,
     TELEGRAM_STALE_MINUTES,
+    WEATHER_SITE_URL,
     WEATHER_TIMEZONE,
 )
 from app.db import format_telegram_snapshot, get_latest_snapshot, init_db, parse_timestamp
@@ -32,10 +33,10 @@ WEATHER_BUTTON = "Погода сейчас"
 
 
 def keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        [[KeyboardButton(WEATHER_BUTTON)]],
-        resize_keyboard=True,
-    )
+    rows = [[KeyboardButton(WEATHER_BUTTON)]]
+    if WEATHER_SITE_URL:
+        rows.append([KeyboardButton("Перейти на сайт", web_app=WebAppInfo(url=WEATHER_SITE_URL))])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 def current_weather_text() -> str:

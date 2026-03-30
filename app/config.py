@@ -48,6 +48,7 @@ DATABASE_PATH = Path(os.getenv("WEATHER_DB_PATH", BASE_DIR / "weather.sqlite3"))
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 WEATHER_TIMEZONE = os.getenv("WEATHER_TIMEZONE", "Asia/Omsk")
 LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+WEATHER_SITE_URL = os.getenv("WEATHER_SITE_URL", "").strip()
 
 TELEGRAM_ADMIN_IDS = _parse_int_list(os.getenv("TELEGRAM_ADMIN_IDS", ""))
 TELEGRAM_DAILY_USER_IDS = _parse_int_list(os.getenv("TELEGRAM_DAILY_USER_IDS", ""))
