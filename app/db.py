@@ -553,6 +553,50 @@ def _period_stats_t1(start_utc: str, end_utc: str) -> dict[str, Any] | None:
     }
 
 
+def _period_day_night_stats_t1(target_day: date) -> dict[str, Any]:
+    day_start_utc, day_end_utc = _local_day_bounds(target_day)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT observed_at, value
+            FROM observations
+            WHERE upper(sensor_id) = 'T1'
+              AND julianday(observed_at) >= julianday(?)
+              AND julianday(observed_at) < julianday(?)
+            ORDER BY observed_at ASC
+            """,
+            (day_start_utc, day_end_utc),
+        ).fetchall()
+
+    day_values: list[float] = []
+    night_values: list[float] = []
+    all_values: list[float] = []
+
+    # Day: 07:00-18:59, Night: 19:00-06:59
+    for row in rows:
+        value = float(row["value"])
+        local_hour = to_local_timestamp(row["observed_at"]).hour
+        all_values.append(value)
+        if 7 <= local_hour < 19:
+            day_values.append(value)
+        else:
+            night_values.append(value)
+
+    def avg(values: list[float]) -> float | None:
+        if not values:
+            return None
+        return sum(values) / len(values)
+
+    return {
+        "day_avg": avg(day_values),
+        "night_avg": avg(night_values),
+        "avg": avg(all_values),
+        "day_count": len(day_values),
+        "night_count": len(night_values),
+        "count": len(all_values),
+    }
+
+
 def get_period_comparison() -> dict[str, Any]:
     today_local = datetime.now(LOCAL_TZ).date()
     periods = [
@@ -561,28 +605,62 @@ def get_period_comparison() -> dict[str, Any]:
         ("Год назад", today_local - timedelta(days=365)),
     ]
 
-    today_start, today_end = _local_day_bounds(today_local)
-    today_stats = _period_stats_t1(today_start, today_end)
+    today_stats = _period_day_night_stats_t1(today_local)
 
     rows = []
     for label, day in periods:
-        s, e = _local_day_bounds(day)
-        stats = _period_stats_t1(s, e)
-        delta_avg = None
-        if today_stats and stats:
-            delta_avg = today_stats["avg"] - stats["avg"]
+        stats = _period_day_night_stats_t1(day)
+        delta_day = None
+        delta_night = None
+        if today_stats["day_avg"] is not None and stats["day_avg"] is not None:
+            delta_day = today_stats["day_avg"] - stats["day_avg"]
+        if today_stats["night_avg"] is not None and stats["night_avg"] is not None:
+            delta_night = today_stats["night_avg"] - stats["night_avg"]
+
         rows.append(
             {
                 "label": label,
                 "date": day.isoformat(),
                 "stats": stats,
-                "delta_avg": delta_avg,
+                "delta_day": delta_day,
+                "delta_night": delta_night,
             }
         )
 
     return {
         "today_date": today_local.isoformat(),
-        "today": today_stats,
+        "today": {
+            "avg": today_stats["avg"],
+            "count": today_stats["count"],
+        },
+        "day": {
+            "today_avg": today_stats["day_avg"],
+            "today_count": today_stats["day_count"],
+            "rows": [
+                {
+                    "label": row["label"],
+                    "date": row["date"],
+                    "avg": row["stats"]["day_avg"],
+                    "count": row["stats"]["day_count"],
+                    "delta": row["delta_day"],
+                }
+                for row in rows
+            ],
+        },
+        "night": {
+            "today_avg": today_stats["night_avg"],
+            "today_count": today_stats["night_count"],
+            "rows": [
+                {
+                    "label": row["label"],
+                    "date": row["date"],
+                    "avg": row["stats"]["night_avg"],
+                    "count": row["stats"]["night_count"],
+                    "delta": row["delta_night"],
+                }
+                for row in rows
+            ],
+        },
         "rows": rows,
     }
 

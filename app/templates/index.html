@@ -106,40 +106,90 @@
                         <h3 class="card-title">Сравнение периодов (T1)</h3>
                     </div>
                     <div class="card-body">
-                        {% if comparison.today %}
-                        <div class="small text-secondary mb-2">Сегодня ({{ comparison.today_date }}): средняя {{ "%.2f"|format(comparison.today.avg) }} °C</div>
-                        {% else %}
-                        <div class="small text-secondary mb-2">Сегодня данных по T1 пока нет.</div>
-                        {% endif %}
-                        <div class="table-responsive">
-                            <table class="table table-sm table-vcenter">
-                                <thead>
-                                    <tr>
-                                        <th>Период</th>
-                                        <th class="text-end">Средняя</th>
-                                        <th class="text-end">Δ</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for row in comparison.rows %}
-                                    <tr>
-                                        <td>{{ row.label }}</td>
-                                        <td class="text-end">
-                                            {% if row.stats %}{{ "%.2f"|format(row.stats.avg) }} °C{% else %}—{% endif %}
-                                        </td>
-                                        <td class="text-end">
-                                            {% if row.delta_avg is not none %}
-                                                <span class="{% if row.delta_avg > 0 %}text-red{% elif row.delta_avg < 0 %}text-blue{% else %}text-secondary{% endif %}">
-                                                    {{ "%+.2f"|format(row.delta_avg) }} °C
-                                                </span>
-                                            {% else %}
-                                                —
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
+                        <div class="small text-secondary mb-2">Сегодня ({{ comparison.today_date }})</div>
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <div class="comparison-block p-2 rounded border">
+                                    <div class="small fw-semibold mb-1">День (07:00-18:59)</div>
+                                    <div class="small text-secondary mb-2">
+                                        Сегодня:
+                                        {% if comparison.day.today_avg is not none %}
+                                            <strong>{{ "%.2f"|format(comparison.day.today_avg) }} °C</strong>
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-vcenter mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Период</th>
+                                                    <th class="text-end">Средняя</th>
+                                                    <th class="text-end">Δ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for row in comparison.day.rows %}
+                                                <tr>
+                                                    <td>{{ row.label }}</td>
+                                                    <td class="text-end">{% if row.avg is not none %}{{ "%.2f"|format(row.avg) }} °C{% else %}—{% endif %}</td>
+                                                    <td class="text-end">
+                                                        {% if row.delta is not none %}
+                                                            <span class="{% if row.delta > 0 %}text-red{% elif row.delta < 0 %}text-blue{% else %}text-secondary{% endif %}">
+                                                                {{ "%+.2f"|format(row.delta) }} °C
+                                                            </span>
+                                                        {% else %}
+                                                            —
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="comparison-block p-2 rounded border">
+                                    <div class="small fw-semibold mb-1">Ночь (19:00-06:59)</div>
+                                    <div class="small text-secondary mb-2">
+                                        Сегодня:
+                                        {% if comparison.night.today_avg is not none %}
+                                            <strong>{{ "%.2f"|format(comparison.night.today_avg) }} °C</strong>
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-vcenter mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Период</th>
+                                                    <th class="text-end">Средняя</th>
+                                                    <th class="text-end">Δ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for row in comparison.night.rows %}
+                                                <tr>
+                                                    <td>{{ row.label }}</td>
+                                                    <td class="text-end">{% if row.avg is not none %}{{ "%.2f"|format(row.avg) }} °C{% else %}—{% endif %}</td>
+                                                    <td class="text-end">
+                                                        {% if row.delta is not none %}
+                                                            <span class="{% if row.delta > 0 %}text-red{% elif row.delta < 0 %}text-blue{% else %}text-secondary{% endif %}">
+                                                                {{ "%+.2f"|format(row.delta) }} °C
+                                                            </span>
+                                                        {% else %}
+                                                            —
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -200,19 +250,26 @@ function axisColor() {
 function buildSparkline(elementId, points, color, unit) {
   const target = document.getElementById(elementId);
   if (!target || !Array.isArray(points) || points.length < 2) return;
+
+  const maxPoints = 120;
+  const step = Math.max(1, Math.ceil(points.length / maxPoints));
+  const sampled = points.filter((_, index) => index % step === 0 || index === points.length - 1);
+
   new Chart(target, {
     type: "line",
     data: {
-      labels: points.map((point) => {
+      labels: sampled.map((point) => {
         const dt = new Date(point.x);
         if (Number.isNaN(dt.getTime())) return "";
         return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
       }),
       datasets: [{
-        data: points.map((point) => point.y),
+        data: sampled.map((point) => point.y),
         borderColor: color,
         borderWidth: 2,
-        pointRadius: 0,
+        pointRadius: 1,
+        pointHoverRadius: 4,
+        pointHitRadius: 16,
         tension: 0.35,
         fill: false
       }]
@@ -220,25 +277,35 @@ function buildSparkline(elementId, points, color, unit) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: { mode: "nearest", intersect: false },
+      interaction: { mode: "index", intersect: false },
+      animation: false,
       plugins: {
         legend: { display: false },
         tooltip: {
           enabled: true,
           displayColors: false,
           callbacks: {
+            title: (items) => items?.[0]?.label || "",
             label: (context) => {
               const value = context.parsed.y;
               if (value === null || value === undefined) return "—";
               const suffix = unit ? ` ${unit}` : "";
-              return `${Number(value).toFixed(2)}${suffix}`;
+              return `Значение: ${Number(value).toFixed(2)}${suffix}`;
             }
           }
         }
       },
       scales: {
         x: { display: false },
-        y: { display: false, grid: { color: axisColor() } }
+        y: {
+          display: true,
+          grid: { display: false },
+          ticks: {
+            maxTicksLimit: 3,
+            callback: (v) => Number(v).toFixed(0)
+          },
+          border: { display: false }
+        }
       }
     }
   });
@@ -298,7 +365,7 @@ fetch("/api/uptime?hours=24")
 
   const start = () => {
     if (timer) return;
-    timer = setInterval(() => window.location.reload(), 30000);
+    timer = setInterval(() => window.location.reload(), 60000);
   };
   const stop = () => {
     if (!timer) return;
