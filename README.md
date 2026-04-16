@@ -1,114 +1,256 @@
 # Weather Station Dashboard
 
-Приложение для приема телеметрии от метеостанции, хранения данных в SQLite, веб-аналитики и Telegram-бота.
+Веб-интерфейс и Telegram-бот для домашней/локальной метеостанции:
+- прием телеметрии через HTTP (`/api/ingest`)
+- хранение в SQLite
+- дашборд, графики, история, состояние станции
+- Telegram-бот с кнопками, алертами и рассылкой
 
-## Состав
+## Важно
 
-- `web`: FastAPI + Jinja2 + Tabler UI
-- `bot`: Telegram-бот (polling)
-- `data/weather.sqlite3`: база с телеметрией
+Проект разработан совместно с **OpenAI Codex**.
 
-## Основные возможности
+## 1) Что нужно заранее
 
-- Главная страница с карточками ключевых метрик и мини-графиками
-- Виджет `Комфорт/риск`
-- Сравнение периодов по `T1`: сегодня vs вчера / месяц назад / год назад
-- Uptime monitor
-- Живой режим (автообновление)
-- Отдельная страница графиков:
-  - температура, влажность, давление, ветер, PM и осадки
-  - тепловая карта температуры по часам
-  - календарь аномалий
-- Страница `Состояние станции`
-- История по выбранному дню
-- Telegram-бот:
-  - кнопка текущей погоды
-  - кнопка перехода на сайт
-  - уведомления о пропаже данных
-  - рассылка по расписанию
-  - динамическое имя бота с текущей температурой
+Минимум:
+- Linux-сервер (Ubuntu/Debian)
+- домен (например `weather.example.com`)
+- открытые порты `80/443`
 
-## Переменные окружения
+Для запуска в Docker:
+- Docker + Docker Compose plugin
 
-Скопируйте `.env.example` в `.env` и заполните значения.
+Для запуска без Docker:
+- Python 3.12+
+- `venv`, `pip`
+- `systemd` (для автозапуска)
 
-- `WEATHER_DB_PATH=/data/weather.sqlite3`
-- `TELEGRAM_BOT_TOKEN=...`
-- `WEB_BIND_PORT=18080`
-- `WEATHER_TIMEZONE=Asia/Omsk`
-- `LOG_DIR=/logs`
-- `WEATHER_SITE_URL=https://weather.shkinev.me`
-- `TELEGRAM_ADMIN_IDS=123456789,987654321`
-- `TELEGRAM_DAILY_USER_IDS=123456789,987654321`
-- `TELEGRAM_DAILY_TIMES=07:00,20:00`
-- `TELEGRAM_STALE_MINUTES=10`
-- `TELEGRAM_MONITOR_INTERVAL_SECONDS=120`
-- `TELEGRAM_DYNAMIC_NAME_ENABLED=1`
-- `TELEGRAM_DYNAMIC_NAME_PREFIX=Погода в КП "Аист"`
-- `TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES=30`
+## 2) Быстрый запуск в Docker (рекомендуется)
 
-## Запуск в Docker
+### Шаг 1. Клонировать проект
+
+```bash
+git clone <YOUR_REPO_URL> weather-dashboard
+cd weather-dashboard
+```
+
+### Шаг 2. Подготовить `.env`
+
+```bash
+cp .env.example .env
+```
+
+Откройте `.env` и заполните минимум:
+- `TELEGRAM_BOT_TOKEN` (если нужен бот)
+- `WEATHER_SITE_URL=https://your-domain.example`
+- `WEATHER_PLACE_NAME=Ваша станция`
+- `SITE_BRAND=Ваш бренд`
+
+Если нужна Яндекс.Метрика:
+- `YANDEX_METRIKA_ID=XXXXXXXX`
+
+### Шаг 3. Запустить контейнеры
 
 ```bash
 docker compose up -d --build
 ```
 
-Логи на хосте:
+Проверка:
+```bash
+docker compose ps
+curl http://127.0.0.1:18080/api/status
+```
 
-- `logs/web.log`
-- `logs/bot.log`
+Ожидается:
+```json
+{"status":"ok"}
+```
 
-Остановка:
+### Шаг 4. Подключить Nginx на хосте
+
+Готовый пример:
+- `deploy/nginx/weather.conf.example`
+
+Пример (HTTP):
+
+```nginx
+server {
+    listen 80;
+    server_name weather.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:18080;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Проверка и перезапуск Nginx:
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Шаг 5. Включить HTTPS (Let’s Encrypt)
 
 ```bash
+sudo apt update
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d weather.example.com
+```
+
+## 3) Запуск без Docker (напрямую в системе)
+
+### Шаг 1. Установить зависимости
+
+```bash
+sudo apt update
+sudo apt install -y python3.12 python3.12-venv python3-pip nginx
+```
+
+### Шаг 2. Подготовить проект
+
+```bash
+git clone <YOUR_REPO_URL> weather-dashboard
+cd weather-dashboard
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+mkdir -p data logs
+```
+
+### Шаг 3. Тестовый запуск
+
+```bash
+source .venv/bin/activate
+set -a && source .env && set +a
+uvicorn app.main:app --host 127.0.0.1 --port 18080 --proxy-headers --forwarded-allow-ips="*"
+```
+
+### Шаг 4. Сделать автозапуск через systemd
+
+Создайте `/etc/systemd/system/weather-web.service`:
+
+```ini
+[Unit]
+Description=Weather Dashboard (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/weather-dashboard
+EnvironmentFile=/opt/weather-dashboard/.env
+ExecStart=/opt/weather-dashboard/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 18080 --proxy-headers --forwarded-allow-ips=*
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Если нужен бот, создайте `/etc/systemd/system/weather-bot.service`:
+
+```ini
+[Unit]
+Description=Weather Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/weather-dashboard
+EnvironmentFile=/opt/weather-dashboard/.env
+ExecStart=/opt/weather-dashboard/.venv/bin/python bot.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Применить:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now weather-web
+sudo systemctl enable --now weather-bot
+sudo systemctl status weather-web --no-pager
+sudo systemctl status weather-bot --no-pager
+```
+
+## 4) Что настроить в `.env`
+
+Смотрите полный шаблон в `.env.example`.
+
+Ключевые параметры:
+- `WEATHER_DB_PATH` — путь к SQLite
+- `WEATHER_TIMEZONE` — временная зона
+- `LOG_DIR` — каталог логов
+- `WEATHER_SITE_URL` — URL сайта для кнопки в Telegram
+- `APP_TITLE` — внутреннее название приложения
+- `SITE_BRAND` — надпись в шапке сайта
+- `WEATHER_PLACE_NAME` — имя станции/локации в сообщениях
+- `YANDEX_METRIKA_ID` — ID Метрики (пусто = выключено)
+
+Telegram:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_ADMIN_IDS`
+- `TELEGRAM_DAILY_USER_IDS`
+- `TELEGRAM_DAILY_TIMES`
+- `TELEGRAM_STALE_MINUTES`
+- `TELEGRAM_MONITOR_INTERVAL_SECONDS`
+- `TELEGRAM_DYNAMIC_NAME_ENABLED`
+- `TELEGRAM_DYNAMIC_NAME_PREFIX`
+- `TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES`
+
+## 5) Публичный деплой: чек-лист безопасности
+
+- не коммитить `.env`
+- не хранить токены в коде
+- держать веб на `127.0.0.1` за Nginx
+- включить HTTPS
+- ограничить доступ к серверу по SSH-ключам
+- регулярно обновлять систему и зависимости
+- делать бэкап `data/weather.sqlite3`
+- проверять логи:
+  - `logs/web.log`
+  - `logs/bot.log`
+
+## 6) Статические библиотеки фронтенда
+
+Чтобы не зависеть от внешних CDN, библиотеки сохранены локально:
+- `app/static/vendor/tabler/core/tabler.min.css`
+- `app/static/vendor/tabler/core/tabler.min.js`
+- `app/static/vendor/tabler/icons/tabler-icons.min.css`
+- `app/static/vendor/tabler/icons/fonts/*`
+- `app/static/vendor/chartjs/chart.umd.min.js`
+- `app/static/vendor/chartjs/chartjs-adapter-date-fns.bundle.min.js`
+
+Проверенные актуальные версии на момент 2026-04-16:
+- `@tabler/core`: `1.4.0`
+- `@tabler/icons-webfont`: `3.41.1`
+- `chart.js`: `4.5.1`
+- `chartjs-adapter-date-fns`: `3.0.0`
+
+## 7) Полезные команды
+
+Docker:
+```bash
+docker compose up -d --build
+docker compose logs -f web
+docker compose logs -f bot
 docker compose down
 ```
 
-## Локальный запуск (Windows / PowerShell)
-
-1. Подготовка окружения:
-
-```powershell
-py -3 -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+Проверка API:
+```bash
+curl http://127.0.0.1:18080/api/status
+curl http://127.0.0.1:18080/api/current
 ```
-
-2. Переменные:
-
-```powershell
-$env:WEATHER_DB_PATH="data/weather.sqlite3"
-$env:WEATHER_TIMEZONE="Asia/Omsk"
-$env:LOG_DIR="logs"
-```
-
-3. Веб:
-
-```powershell
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-4. Бот (в другой консоли):
-
-```powershell
-$env:WEATHER_DB_PATH="data/weather.sqlite3"
-$env:WEATHER_TIMEZONE="Asia/Omsk"
-$env:LOG_DIR="logs"
-$env:TELEGRAM_BOT_TOKEN="ваш_токен"
-py -3 bot.py
-```
-
-Сайт: `http://127.0.0.1:8000`
-
-## API
-
-- `POST /api/ingest` - прием данных станции
-- `GET /api/current` - текущий снимок
-- `GET /api/chart-data?days=1` - серии для графиков
-- `GET /api/uptime?hours=24` - данные uptime monitor
-- `GET /api/comfort-risk` - статус комфорта/риска
-- `GET /api/period-comparison` - сравнение периодов по T1
-- `GET /api/temperature-heatmap?days=30` - матрица тепловой карты
-- `GET /api/anomaly-calendar?month=YYYY-MM` - календарь аномалий
-- `GET /api/station-status` - состояние станции
-- `GET /api/status` - статус сервиса

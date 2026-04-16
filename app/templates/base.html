@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>{% block title %}Метеостанция{% endblock %}</title>
+    <title>{% block title %}{{ app_title }}{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script>
         (function () {
@@ -11,9 +11,10 @@
             document.documentElement.setAttribute("data-bs-theme", theme);
         })();
     </script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/css/tabler.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.35.0/dist/tabler-icons.min.css">
+    <link rel="stylesheet" href="/static/vendor/tabler/core/tabler.min.css">
+    <link rel="stylesheet" href="/static/vendor/tabler/icons/tabler-icons.min.css">
     <link rel="stylesheet" href="/static/tabler-custom.css">
+    {% if yandex_metrika_enabled %}
     <!-- Yandex.Metrika counter -->
     <script type="text/javascript">
         (function(m,e,t,r,i,k,a){
@@ -21,14 +22,17 @@
             m[i].l=1*new Date();
             for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
             k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a);
-        })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=107729227', 'ym');
-        ym(107729227, 'init', {ssr:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+        })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id={{ yandex_metrika_id }}', 'ym');
+        ym({{ yandex_metrika_id }}, 'init', {ssr:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
     </script>
     <!-- /Yandex.Metrika counter -->
+    {% endif %}
     {% block head %}{% endblock %}
 </head>
 <body>
-    <noscript><div><img src="https://mc.yandex.ru/watch/107729227" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    {% if yandex_metrika_enabled %}
+    <noscript><div><img src="https://mc.yandex.ru/watch/{{ yandex_metrika_id }}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    {% endif %}
     <div class="page">
         <header class="navbar navbar-expand-md d-print-none">
             <div class="container-xl">
@@ -37,7 +41,7 @@
                 </button>
                 <h1 class="navbar-brand navbar-brand-autodark pe-0 pe-md-3 mb-0">
                     <a href="/">
-                        <span class="text-primary">weather.shkinev.me</span>
+                        <span class="text-primary">{{ site_brand }}</span>
                     </a>
                 </h1>
                 <div class="navbar-nav flex-row order-md-last align-items-center">
@@ -85,7 +89,7 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js"></script>
+    <script src="/static/vendor/tabler/core/tabler.min.js"></script>
     <script>
         (function () {
             const btn = document.getElementById("theme-toggle");

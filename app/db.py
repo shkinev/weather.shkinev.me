@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .config import DATABASE_PATH, WEATHER_TIMEZONE
+from .config import DATABASE_PATH, WEATHER_PLACE_NAME, WEATHER_TIMEZONE
 from .sensor_map import PRIMARY_SENSOR_IDS, sensor_label, sensor_unit
 
 try:
@@ -873,13 +873,14 @@ def _format_temp_with_icon(value: float) -> str:
 
 
 def format_telegram_snapshot(snapshot: dict[str, Any] | None) -> str:
+    title = f'🏡 Погода: {WEATHER_PLACE_NAME}'
     if not snapshot:
-        return '🏡 Погода в КП "Аист"\n⚪ --\n\n📭 Данных пока нет. Станция еще ничего не отправляла.'
+        return f"{title}\n⚪ --\n\n📭 Данных пока нет. Станция еще ничего не отправляла."
 
     freshness = snapshot.get("received_freshness") or freshness_emoji(snapshot["received_at"])
     updated_ago = snapshot.get("received_ago") or format_relative_age(snapshot["received_at"])
     lines = [
-        '🏡 Погода в КП "Аист"',
+        title,
         f"🕒 Обновлено: {freshness} {updated_ago}",
         "",
         "Показатели:",

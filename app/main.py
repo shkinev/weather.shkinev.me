@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
-from .config import WEATHER_TIMEZONE
+from .config import APP_TITLE, SITE_BRAND, WEATHER_TIMEZONE, YANDEX_METRIKA_ENABLED, YANDEX_METRIKA_ID
 from .db import (
     get_anomaly_calendar,
     get_chart_series,
@@ -29,8 +29,12 @@ from .db import (
 from .logging_setup import setup_logging
 
 
-app = FastAPI(title="Weather Station", version="1.1.0")
+app = FastAPI(title=APP_TITLE, version="1.1.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.globals["app_title"] = APP_TITLE
+templates.env.globals["site_brand"] = SITE_BRAND
+templates.env.globals["yandex_metrika_enabled"] = YANDEX_METRIKA_ENABLED
+templates.env.globals["yandex_metrika_id"] = YANDEX_METRIKA_ID
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 try:
     APP_TZ = ZoneInfo(WEATHER_TIMEZONE)
