@@ -1,63 +1,104 @@
 {% extends "base.html" %}
-{% block title %}Графики{% endblock %}
+{% block title %}Графики | Метеостанция{% endblock %}
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 {% endblock %}
 {% block content %}
-<section class="hero compact">
-    <div>
-        <p class="eyebrow">Аналитика</p>
-        <h1>Графики за разные периоды</h1>
-        <p class="lede">Выберите интервал и получите динамику основных метрик по накопленной телеметрии.</p>
+<div class="page-header d-print-none">
+    <div class="container-xl">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <div class="page-pretitle">Аналитика</div>
+                <h2 class="page-title">Графики и аномалии</h2>
+                <div class="text-secondary mt-1">Линейные графики, тепловая карта температуры по часам и календарь аномалий.</div>
+            </div>
+            <div class="col-auto ms-auto d-print-none">
+                <form method="get" action="/charts" class="btn-list">
+                    {% for option in [1, 3, 7, 30] %}
+                    <button class="btn {% if option == days %}btn-primary{% else %}btn-outline-primary{% endif %}" type="submit" name="days" value="{{ option }}">{{ option }}д</button>
+                    {% endfor %}
+                </form>
+            </div>
+        </div>
     </div>
-    <form class="period-switcher" method="get" action="/charts">
-        {% for option in [1, 3, 7, 30] %}
-        <button type="submit" name="days" value="{{ option }}" class="{% if option == days %}active{% endif %}">
-            {{ option }}д
-        </button>
-        {% endfor %}
-    </form>
-</section>
+</div>
 
-<section class="charts-grid">
-    <article class="glass-card chart-card">
-        <h2>Температура</h2>
-        <canvas id="chart-temp"></canvas>
-    </article>
-    <article class="glass-card chart-card">
-        <h2>Влажность</h2>
-        <canvas id="chart-humidity"></canvas>
-    </article>
-    <article class="glass-card chart-card">
-        <h2>Давление</h2>
-        <canvas id="chart-pressure"></canvas>
-    </article>
-    <article class="glass-card chart-card">
-        <h2>Ветер</h2>
-        <canvas id="chart-wind"></canvas>
-    </article>
-    <article class="glass-card chart-card">
-        <h2>Качество воздуха и осадки</h2>
-        <canvas id="chart-extra"></canvas>
-    </article>
-</section>
+<div class="page-body">
+    <div class="container-xl">
+        <div id="charts-status" class="alert alert-warning" role="alert" hidden>
+            <div class="d-flex">
+                <div><i class="ti ti-alert-triangle me-2"></i></div>
+                <div id="charts-status-text"></div>
+            </div>
+        </div>
 
-<section class="panel empty-state" id="charts-status" hidden>
-    <h2>Графики пока не построены</h2>
-    <p id="charts-status-text"></p>
-</section>
-
+        <div class="row row-cards">
+            <div class="col-md-6">
+                <div class="card chart-card">
+                    <div class="card-header"><h3 class="card-title">Температура (T1)</h3></div>
+                    <div class="card-body"><canvas id="chart-temp" class="chart-canvas"></canvas></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card chart-card">
+                    <div class="card-header"><h3 class="card-title">Влажность</h3></div>
+                    <div class="card-body"><canvas id="chart-humidity" class="chart-canvas"></canvas></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card chart-card">
+                    <div class="card-header"><h3 class="card-title">Давление</h3></div>
+                    <div class="card-body"><canvas id="chart-pressure" class="chart-canvas"></canvas></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card chart-card">
+                    <div class="card-header"><h3 class="card-title">Ветер</h3></div>
+                    <div class="card-body"><canvas id="chart-wind" class="chart-canvas"></canvas></div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card chart-card">
+                    <div class="card-header"><h3 class="card-title">Качество воздуха и осадки</h3></div>
+                    <div class="card-body"><canvas id="chart-extra" class="chart-canvas chart-canvas-lg"></canvas></div>
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="card chart-card">
+                    <div class="card-header"><h3 class="card-title">Тепловая карта температуры по часам (T1)</h3></div>
+                    <div class="card-body">
+                        <div id="heatmap" class="heatmap-grid"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card chart-card">
+                    <div class="card-header"><h3 class="card-title">Календарь аномалий</h3></div>
+                    <div class="card-body">
+                        <div id="anomaly-calendar" class="anomaly-calendar"></div>
+                        <div class="small text-secondary mt-3">
+                            <span class="badge bg-green-lt text-green">Норма</span>
+                            <span class="badge bg-yellow-lt text-yellow ms-1">Риск</span>
+                            <span class="badge bg-red-lt text-red ms-1">Аномалия</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
 <script>
 const days = {{ days }};
-
 const palette = {
-  orange: "#ff8a3d",
-  blue: "#4db6ff",
-  mint: "#4de2b1",
-  red: "#ff5d6c",
-  amber: "#ffc857",
-  gray: "#a4b3c8"
+  orange: "#f97316",
+  blue: "#2563eb",
+  mint: "#059669",
+  red: "#dc2626",
+  amber: "#d97706",
+  gray: "#6b7280"
 };
 
 function datasetByIds(series, ids, color, fallbackLabel) {
@@ -69,7 +110,7 @@ function datasetByIds(series, ids, color, fallbackLabel) {
         data: item.points.map((point) => ({ x: new Date(point.x), y: point.y })),
         borderColor: color,
         backgroundColor: color,
-        tension: 0.3,
+        tension: 0.28,
         fill: false,
         pointRadius: 0
       };
@@ -78,12 +119,30 @@ function datasetByIds(series, ids, color, fallbackLabel) {
   return null;
 }
 
+function isDarkTheme() {
+  return document.documentElement.getAttribute("data-bs-theme") === "dark";
+}
+function axisColor() {
+  return isDarkTheme() ? "#9eb0c7" : "#667382";
+}
+function gridColor() {
+  return isDarkTheme() ? "rgba(148, 163, 184, 0.2)" : "rgba(145, 158, 171, 0.2)";
+}
+function legendColor() {
+  return isDarkTheme() ? "#f1f5f9" : "#334155";
+}
+function showStatus(text) {
+  const panel = document.getElementById("charts-status");
+  const statusText = document.getElementById("charts-status-text");
+  if (!panel || !statusText) return;
+  statusText.textContent = text;
+  panel.hidden = false;
+}
+
 function createChart(elementId, datasets) {
   const target = document.getElementById(elementId);
   const filtered = datasets.filter(Boolean);
-  if (!target || !filtered.length) {
-    return false;
-  }
+  if (!target || !filtered.length) return false;
 
   new Chart(target, {
     type: "line",
@@ -91,75 +150,110 @@ function createChart(elementId, datasets) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
       scales: {
         x: {
           type: "time",
           time: { tooltipFormat: "yyyy-MM-dd HH:mm" },
-          ticks: { color: "#9eb0c7" },
-          grid: { color: "rgba(148, 163, 184, 0.12)" }
+          ticks: { color: axisColor() },
+          grid: { color: gridColor() }
         },
         y: {
-          ticks: { color: "#9eb0c7" },
-          grid: { color: "rgba(148, 163, 184, 0.12)" }
+          ticks: { color: axisColor() },
+          grid: { color: gridColor() }
         }
       },
       plugins: {
-        legend: { labels: { color: "#f4f7fb" } }
+        legend: { labels: { color: legendColor() } }
       }
     }
   });
-
   return true;
 }
 
-function showStatus(text) {
-  const panel = document.getElementById("charts-status");
-  const statusText = document.getElementById("charts-status-text");
-  if (!panel || !statusText) {
+function colorByTemp(value) {
+  if (value === null || value === undefined) return "var(--tblr-muted)";
+  if (value < -20) return "#1d4ed8";
+  if (value < -10) return "#2563eb";
+  if (value < 0) return "#0ea5e9";
+  if (value < 10) return "#22c55e";
+  if (value < 20) return "#f59e0b";
+  if (value < 30) return "#f97316";
+  return "#dc2626";
+}
+
+function renderHeatmap(payload) {
+  const root = document.getElementById("heatmap");
+  if (!root) return;
+  if (!payload || !Array.isArray(payload.labels) || !Array.isArray(payload.hours) || !Array.isArray(payload.matrix)) {
+    root.innerHTML = '<div class="text-secondary">Нет данных для тепловой карты.</div>';
     return;
   }
-  statusText.textContent = text;
-  panel.hidden = false;
+
+  const header = ['<div class="cell head"></div>'];
+  for (const h of payload.hours) header.push(`<div class="cell head">${h.slice(0,2)}</div>`);
+  const rows = [header.join("")];
+
+  for (let i = 0; i < payload.labels.length; i += 1) {
+    const date = payload.labels[i];
+    const values = payload.matrix[i] || [];
+    const parts = [`<div class="cell date">${date.slice(5)}</div>`];
+    for (let hour = 0; hour < payload.hours.length; hour += 1) {
+      const value = values[hour];
+      const title = value === null || value === undefined ? `${date} ${payload.hours[hour]}: нет данных` : `${date} ${payload.hours[hour]}: ${value.toFixed(2)} °C`;
+      const style = `background:${colorByTemp(value)};`;
+      const text = value === null || value === undefined ? "" : value.toFixed(0);
+      parts.push(`<div class="cell value" style="${style}" title="${title}">${text}</div>`);
+    }
+    rows.push(parts.join(""));
+  }
+  root.innerHTML = rows.join("");
+}
+
+function renderAnomalyCalendar(payload) {
+  const root = document.getElementById("anomaly-calendar");
+  if (!root) return;
+  if (!payload || !Array.isArray(payload.days) || !payload.days.length) {
+    root.innerHTML = '<div class="text-secondary">Нет данных.</div>';
+    return;
+  }
+  const parts = [];
+  for (const day of payload.days) {
+    const cls = day.level === "high" ? "high" : day.level === "medium" ? "medium" : "ok";
+    const reason = Array.isArray(day.reasons) && day.reasons.length ? day.reasons.join(", ") : "Норма";
+    parts.push(`<div class="day ${cls}" title="${day.date}: ${reason}">${day.day}</div>`);
+  }
+  root.innerHTML = parts.join("");
 }
 
 fetch(`/api/chart-data?days=${days}`)
   .then((response) => {
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
   })
   .then((payload) => {
     const series = payload.series || {};
-
     const built = [
-      createChart("chart-temp", [
-        datasetByIds(series, ["T1"], palette.orange),
-        datasetByIds(series, ["T2", "T3", "T4"], palette.blue)
-      ]),
-      createChart("chart-humidity", [
-        datasetByIds(series, ["RH", "H1", "H2"], palette.mint)
-      ]),
-      createChart("chart-pressure", [
-        datasetByIds(series, ["PRESS", "HPA"], palette.amber)
-      ]),
-      createChart("chart-wind", [
-        datasetByIds(series, ["WS"], palette.blue),
-        datasetByIds(series, ["WS1"], palette.gray)
-      ]),
-      createChart("chart-extra", [
-        datasetByIds(series, ["PM2"], palette.red),
-        datasetByIds(series, ["PM10"], palette.gray),
-        datasetByIds(series, ["RAIN2"], palette.mint)
-      ])
+      createChart("chart-temp", [datasetByIds(series, ["T1"], palette.orange)]),
+      createChart("chart-humidity", [datasetByIds(series, ["RH", "H1", "H2"], palette.mint)]),
+      createChart("chart-pressure", [datasetByIds(series, ["PRESS", "HPA"], palette.amber)]),
+      createChart("chart-wind", [datasetByIds(series, ["WS"], palette.blue), datasetByIds(series, ["WS1"], palette.gray)]),
+      createChart("chart-extra", [datasetByIds(series, ["PM2"], palette.red), datasetByIds(series, ["PM10"], palette.gray), datasetByIds(series, ["RAIN2"], palette.mint)])
     ];
-
-    if (built.every((result) => result === false)) {
-      showStatus("Нет данных за выбранный период. Проверьте, что станция отправляет телеметрию на /api/ingest.");
+    if (built.every((v) => v === false)) {
+      showStatus("Нет данных за выбранный период. Проверьте, что станция отправляет телеметрию.");
     }
   })
-  .catch((error) => {
-    showStatus(`Ошибка загрузки данных графиков: ${error.message}`);
-  });
+  .catch((error) => showStatus(`Ошибка загрузки графиков: ${error.message}`));
+
+fetch("/api/temperature-heatmap?days=30")
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
+  .then((payload) => renderHeatmap(payload))
+  .catch(() => renderHeatmap(null));
+
+fetch("/api/anomaly-calendar")
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
+  .then((payload) => renderAnomalyCalendar(payload))
+  .catch(() => renderAnomalyCalendar(null));
 </script>
 {% endblock %}

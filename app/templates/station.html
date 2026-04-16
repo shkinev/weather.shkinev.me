@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Состояние станции | Метеостанция{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+    <div class="container-xl">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <div class="page-pretitle">Диагностика</div>
+                <h2 class="page-title">Состояние станции</h2>
+                <div class="text-secondary mt-1">Оценка стабильности потока данных и состава сенсоров.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="page-body">
+    <div class="container-xl">
+        <div class="row row-cards">
+            <div class="col-sm-6 col-lg-3">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="text-secondary">Последнее обновление</div>
+                        <div class="h2 mb-0">{{ status.freshness }} {{ status.last_seen_ago }}</div>
+                        <div class="text-secondary">{{ status.last_seen }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="text-secondary">Пакеты за 24 часа</div>
+                        <div class="h2 mb-0">{{ status.packets_24h }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="text-secondary">Пакеты за 7 дней</div>
+                        <div class="h2 mb-0">{{ status.packets_7d }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="text-secondary">Средний интервал</div>
+                        <div class="h2 mb-0">
+                            {% if status.avg_interval_min is not none %}
+                            {{ "%.1f"|format(status.avg_interval_min) }} мин
+                            {% else %}
+                            —
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header"><h3 class="card-title">Пропуски за 24 часа</h3></div>
+                    <div class="card-body">
+                        {% if status.gaps_24h > 0 %}
+                        <div class="alert alert-warning mb-0">Найдено пропусков: <strong>{{ status.gaps_24h }}</strong> (интервал больше 30 минут).</div>
+                        {% else %}
+                        <div class="alert alert-success mb-0">Существенных пропусков не обнаружено.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header"><h3 class="card-title">Обязательные сенсоры</h3></div>
+                    <div class="card-body">
+                        <div class="text-secondary mb-2">Сейчас в снапшоте: {{ status.sensor_count }}</div>
+                        {% if status.missing_primary %}
+                        <div class="alert alert-danger mb-0">
+                            Не найдены: {{ status.missing_primary|join(", ") }}
+                        </div>
+                        {% else %}
+                        <div class="alert alert-success mb-0">Все обязательные сенсоры присутствуют.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

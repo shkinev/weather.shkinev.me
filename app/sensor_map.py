@@ -41,7 +41,7 @@ SENSOR_MAP: dict[str, SensorMeta] = {
 }
 
 
-PRIMARY_SENSOR_IDS = ("T1", "T2", "RH", "PRESS", "WS", "WS1", "1DIR", "RAIN2", "PM2", "PM10")
+PRIMARY_SENSOR_IDS = ("T1", "RH", "PRESS", "WS", "RAIN2", "PM2", "PM10")
 
 
 def sensor_label(sensor_id: str) -> str:

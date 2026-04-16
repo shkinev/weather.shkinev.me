@@ -6,3 +6,5 @@ data/*.sqlite3
 .env
 certs/*.crt
 certs/*.key
+logs/*
+!logs/.gitkeep

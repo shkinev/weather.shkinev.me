@@ -1,58 +1,385 @@
 {% extends "base.html" %}
-{% block title %}Текущая погода{% endblock %}
+{% block title %}Главная | Метеостанция{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+{% endblock %}
 {% block content %}
-<section class="hero">
-    <div>
-        <p class="eyebrow">Локальная метеостанция</p>
-        <h1>Текущие погодные данные</h1>
+<div class="page-header d-print-none">
+    <div class="container-xl">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <div class="page-pretitle">Локальная метеостанция</div>
+                <h2 class="page-title">Текущая погода</h2>
+                {% if snapshot %}
+                <div class="text-secondary mt-1">
+                    Обновлено: <span id="received-badge">{{ snapshot.received_freshness }} {{ snapshot.received_ago }}</span> ({{ snapshot.received_local }}).
+                </div>
+                {% else %}
+                <div class="text-secondary mt-1">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</div>
+                {% endif %}
+            </div>
+            <div class="col-auto">
+                <label class="form-check form-switch m-0">
+                    <input id="live-mode" class="form-check-input" type="checkbox">
+                    <span class="form-check-label">Живой режим</span>
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="page-body">
+    <div class="container-xl">
         {% if snapshot %}
-        <p class="lede">Последняя телеметрия от {{ snapshot.device_mac }} получена {{ snapshot.received_ago }}.</p>
+        <div class="row row-cards">
+            {% for reading in snapshot.primary_readings %}
+            <div class="col-sm-6 col-xl-4">
+                <div class="card metric-tile">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-secondary mb-1">{{ reading.sensor_name }}</div>
+                            <span class="badge badge-outline">{{ reading.sensor_id }}</span>
+                        </div>
+                        <div class="display-6 fw-bold mb-1">{{ "%.2f"|format(reading.value) }}</div>
+                        <div class="text-blue fw-semibold mb-2">{{ reading.unit or "—" }}</div>
+                        <canvas class="metric-sparkline" id="spark-{{ reading.sensor_id }}"></canvas>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="row row-cards mt-2">
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h3 class="card-title">Комфорт/риск</h3>
+                        <div class="card-actions">
+                            <span class="badge comfort-{{ comfort.level }}">{{ comfort.state }}</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-secondary mb-2">{{ comfort.description }}</div>
+                        <div class="d-flex flex-column gap-2 small">
+                            <div>Температура: <strong>{{ "%.2f"|format(comfort.temperature.value) }} {{ comfort.temperature.unit }}</strong></div>
+                            <div>Влажность: <strong>{{ "%.2f"|format(comfort.humidity.value) }} {{ comfort.humidity.unit }}</strong></div>
+                            <div>Давление: <strong>{{ "%.2f"|format(comfort.pressure.value) }} {{ comfort.pressure.unit }}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h3 class="card-title">Мин/макс T1 за сегодня</h3>
+                        <div class="card-actions"><span class="badge badge-outline">{{ temp_extremes.date }}</span></div>
+                    </div>
+                    <div class="card-body">
+                        {% if temp_extremes.min and temp_extremes.max %}
+                        <div class="d-flex flex-column gap-3">
+                            <div class="d-flex justify-content-between">
+                                <div class="text-secondary">Минимум</div>
+                                <div class="text-end">
+                                    <div class="fw-bold text-blue">{{ "%.2f"|format(temp_extremes.min.value) }} {{ temp_extremes.min.unit }}</div>
+                                    <div class="text-secondary">в {{ temp_extremes.min.time }}</div>
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <div class="text-secondary">Максимум</div>
+                                <div class="text-end">
+                                    <div class="fw-bold text-orange">{{ "%.2f"|format(temp_extremes.max.value) }} {{ temp_extremes.max.unit }}</div>
+                                    <div class="text-secondary">в {{ temp_extremes.max.time }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="text-secondary">За сегодня по T1 данных пока нет.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h3 class="card-title">Сравнение периодов (T1)</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="small text-secondary mb-2">Сегодня ({{ comparison.today_date }})</div>
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <div class="comparison-block p-2 rounded border">
+                                    <div class="small fw-semibold mb-1">День (07:00-18:59)</div>
+                                    <div class="small text-secondary mb-2">
+                                        Сегодня:
+                                        {% if comparison.day.today_avg is not none %}
+                                            <strong>{{ "%.2f"|format(comparison.day.today_avg) }} °C</strong>
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-vcenter mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Период</th>
+                                                    <th class="text-end">Средняя</th>
+                                                    <th class="text-end">Δ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for row in comparison.day.rows %}
+                                                <tr>
+                                                    <td>{{ row.label }}</td>
+                                                    <td class="text-end">{% if row.avg is not none %}{{ "%.2f"|format(row.avg) }} °C{% else %}—{% endif %}</td>
+                                                    <td class="text-end">
+                                                        {% if row.delta is not none %}
+                                                            <span class="{% if row.delta > 0 %}text-red{% elif row.delta < 0 %}text-blue{% else %}text-secondary{% endif %}">
+                                                                {{ "%+.2f"|format(row.delta) }} °C
+                                                            </span>
+                                                        {% else %}
+                                                            —
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="comparison-block p-2 rounded border">
+                                    <div class="small fw-semibold mb-1">Ночь (19:00-06:59)</div>
+                                    <div class="small text-secondary mb-2">
+                                        Сегодня:
+                                        {% if comparison.night.today_avg is not none %}
+                                            <strong>{{ "%.2f"|format(comparison.night.today_avg) }} °C</strong>
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-vcenter mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Период</th>
+                                                    <th class="text-end">Средняя</th>
+                                                    <th class="text-end">Δ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for row in comparison.night.rows %}
+                                                <tr>
+                                                    <td>{{ row.label }}</td>
+                                                    <td class="text-end">{% if row.avg is not none %}{{ "%.2f"|format(row.avg) }} °C{% else %}—{% endif %}</td>
+                                                    <td class="text-end">
+                                                        {% if row.delta is not none %}
+                                                            <span class="{% if row.delta > 0 %}text-red{% elif row.delta < 0 %}text-blue{% else %}text-secondary{% endif %}">
+                                                                {{ "%+.2f"|format(row.delta) }} °C
+                                                            </span>
+                                                        {% else %}
+                                                            —
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Uptime Monitor</h3>
+                        <div class="card-actions">
+                            <span class="badge bg-green-lt text-green">{{ "%.1f"|format(uptime.availability) }}%</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-secondary mb-2">Активность входящих пакетов за {{ uptime.hours }} часа</div>
+                        <canvas id="uptime-chart" class="uptime-chart"></canvas>
+                        <div class="mt-3 text-secondary">Последний пакет: {{ uptime.freshness }} {{ uptime.last_seen_ago }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
         {% else %}
-        <p class="lede">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</p>
+        <div class="row row-cards">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">Телеметрия еще не поступала</h3>
+                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся карточки и аналитика.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
         {% endif %}
     </div>
-    <div class="glass-card accent">
-        <p class="muted">Что уже есть</p>
-        <p>Прием JSON от станции, хранение в SQLite, графики по периодам и история по дням.</p>
-    </div>
-</section>
-
+</div>
+{% endblock %}
+{% block scripts %}
 {% if snapshot %}
-<section class="cards-grid">
-    {% for reading in snapshot.primary_readings %}
-    <article class="glass-card metric-card">
-        <p class="metric-label">{{ reading.sensor_name }}</p>
-        <p class="metric-value">{{ "%.2f"|format(reading.value) }}</p>
-        <p class="metric-unit">{{ reading.unit or "—" }}</p>
-    </article>
-    {% endfor %}
-</section>
+<script>
+const sparklineConfig = {
+  T1: "#f97316",
+  RH: "#059669",
+  PRESS: "#d97706",
+  WS: "#2563eb",
+  RAIN2: "#0284c7",
+  PM2: "#dc2626",
+  PM10: "#6b7280"
+};
 
-<section class="panel">
-    <div class="panel-head">
-        <h2>Все доступные датчики</h2>
-        <span>{{ snapshot.readings|length }} показаний</span>
-    </div>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Датчик</th>
-                    <th>Код</th>
-                    <th>Значение</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for reading in snapshot.readings %}
-                <tr>
-                    <td>{{ reading.sensor_name }}</td>
-                    <td>{{ reading.sensor_id }}</td>
-                    <td>{{ "%.2f"|format(reading.value) }} {{ reading.unit }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
+function isDarkTheme() {
+  return document.documentElement.getAttribute("data-bs-theme") === "dark";
+}
+
+function axisColor() {
+  return isDarkTheme() ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.45)";
+}
+
+function buildSparkline(elementId, points, color, unit) {
+  const target = document.getElementById(elementId);
+  if (!target || !Array.isArray(points) || points.length < 2) return;
+
+  const maxPoints = 120;
+  const step = Math.max(1, Math.ceil(points.length / maxPoints));
+  const sampled = points.filter((_, index) => index % step === 0 || index === points.length - 1);
+
+  new Chart(target, {
+    type: "line",
+    data: {
+      labels: sampled.map((point) => {
+        const dt = new Date(point.x);
+        if (Number.isNaN(dt.getTime())) return "";
+        return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      }),
+      datasets: [{
+        data: sampled.map((point) => point.y),
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 1,
+        pointHoverRadius: 4,
+        pointHitRadius: 16,
+        tension: 0.35,
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          enabled: true,
+          displayColors: false,
+          callbacks: {
+            title: (items) => items?.[0]?.label || "",
+            label: (context) => {
+              const value = context.parsed.y;
+              if (value === null || value === undefined) return "—";
+              const suffix = unit ? ` ${unit}` : "";
+              return `Значение: ${Number(value).toFixed(2)}${suffix}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: {
+          display: true,
+          grid: { display: false },
+          ticks: {
+            maxTicksLimit: 3,
+            callback: (v) => Number(v).toFixed(0)
+          },
+          border: { display: false }
+        }
+      }
+    }
+  });
+}
+
+function buildUptimeChart(payload) {
+  const target = document.getElementById("uptime-chart");
+  if (!target || !payload || !Array.isArray(payload.points)) return;
+  new Chart(target, {
+    type: "bar",
+    data: {
+      labels: payload.labels,
+      datasets: [{
+        data: payload.points,
+        backgroundColor: payload.points.map((v) => (v > 0 ? "#22c55e" : "#cbd5e1")),
+        borderWidth: 0,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: true } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+        y: { beginAtZero: true, grid: { color: axisColor() }, ticks: { precision: 0 } }
+      }
+    }
+  });
+}
+
+fetch("/api/chart-data?days=1")
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
+  .then((payload) => {
+    const series = payload.series || {};
+    document.querySelectorAll(".metric-sparkline").forEach((canvas) => {
+      const sid = canvas.id.replace("spark-", "").toUpperCase();
+      const item = series[sid];
+      if (!item || !Array.isArray(item.points) || item.points.length < 2) return;
+      buildSparkline(canvas.id, item.points, sparklineConfig[sid] || "#2563eb", item.unit || "");
+    });
+  })
+  .catch(() => {});
+
+fetch("/api/uptime?hours=24")
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
+  .then((payload) => buildUptimeChart(payload))
+  .catch(() => {});
+
+(function () {
+  const liveModeEl = document.getElementById("live-mode");
+  if (!liveModeEl) return;
+  let timer = null;
+
+  const saved = localStorage.getItem("live-mode") === "1";
+  liveModeEl.checked = saved;
+
+  const start = () => {
+    if (timer) return;
+    timer = setInterval(() => window.location.reload(), 60000);
+  };
+  const stop = () => {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+  };
+  if (saved) start();
+
+  liveModeEl.addEventListener("change", () => {
+    const enabled = liveModeEl.checked;
+    localStorage.setItem("live-mode", enabled ? "1" : "0");
+    if (enabled) start(); else stop();
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}
