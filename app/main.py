@@ -42,6 +42,16 @@ except ZoneInfoNotFoundError:
     APP_TZ = UTC
 
 
+def render_template(request: Request, template_name: str, context: dict[str, Any]) -> HTMLResponse:
+    full_context = {"request": request, **context}
+    try:
+        # Starlette/FastAPI with request-first TemplateResponse signature.
+        return templates.TemplateResponse(request=request, name=template_name, context=full_context)
+    except TypeError:
+        # Backward compatibility for name-first signature.
+        return templates.TemplateResponse(template_name, full_context)
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     setup_logging("web")
@@ -68,10 +78,10 @@ def dashboard(request: Request) -> HTMLResponse:
     temp_extremes = get_today_temperature_extremes()
     comfort = get_comfort_risk(snapshot)
     comparison = get_period_comparison()
-    return templates.TemplateResponse(
+    return render_template(
+        request,
         "index.html",
         {
-            "request": request,
             "snapshot": snapshot,
             "uptime": uptime,
             "temp_extremes": temp_extremes,
@@ -84,29 +94,20 @@ def dashboard(request: Request) -> HTMLResponse:
 @app.get("/charts", response_class=HTMLResponse)
 def charts_page(request: Request, days: int = 1) -> HTMLResponse:
     period = max(1, min(days, 90))
-    return templates.TemplateResponse(
-        "charts.html",
-        {"request": request, "days": period},
-    )
+    return render_template(request, "charts.html", {"days": period})
 
 
 @app.get("/history", response_class=HTMLResponse)
 def history_page(request: Request, day: str | None = None) -> HTMLResponse:
     selected_day = day or datetime.now(APP_TZ).date().isoformat()
     items = get_history_for_date(selected_day)
-    return templates.TemplateResponse(
-        "history.html",
-        {"request": request, "selected_day": selected_day, "items": items},
-    )
+    return render_template(request, "history.html", {"selected_day": selected_day, "items": items})
 
 
 @app.get("/station", response_class=HTMLResponse)
 def station_page(request: Request) -> HTMLResponse:
     status = get_station_status()
-    return templates.TemplateResponse(
-        "station.html",
-        {"request": request, "status": status},
-    )
+    return render_template(request, "station.html", {"status": status})
 
 
 @app.post("/api/ingest")
