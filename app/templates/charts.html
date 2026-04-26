@@ -1,105 +1,88 @@
 {% extends "base.html" %}
-{% block title %}Графики | Метеостанция{% endblock %}
+{% block title %}Графики | {{ app_title }}{% endblock %}
 {% block head %}
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 <script src="/static/vendor/chartjs/chartjs-adapter-date-fns.bundle.min.js"></script>
 {% endblock %}
+
 {% block content %}
-<div class="page-header d-print-none">
-    <div class="container-xl">
-        <div class="row g-2 align-items-center">
-            <div class="col">
-                <div class="page-pretitle">Аналитика</div>
-                <h2 class="page-title">Графики и аномалии</h2>
-                <div class="text-secondary mt-1">Линейные графики, тепловая карта температуры по часам и календарь аномалий.</div>
-            </div>
-            <div class="col-auto ms-auto d-print-none">
-                <form method="get" action="/charts" class="btn-list">
-                    {% for option in [1, 3, 7, 30] %}
-                    <button class="btn {% if option == days %}btn-primary{% else %}btn-outline-primary{% endif %}" type="submit" name="days" value="{{ option }}">{{ option }}д</button>
-                    {% endfor %}
-                </form>
-            </div>
-        </div>
+  <header class="page-header">
+    <div>
+      <div class="eyebrow">АНАЛИТИКА</div>
+      <h1 class="page-title">Графики и аномалии</h1>
+      <div class="page-sub">Линейные графики, тепловая карта температуры по часам и календарь аномалий.</div>
     </div>
-</div>
-
-<div class="page-body">
-    <div class="container-xl">
-        <div id="charts-status" class="alert alert-warning" role="alert" hidden>
-            <div class="d-flex">
-                <div><i class="ti ti-alert-triangle me-2"></i></div>
-                <div id="charts-status-text"></div>
-            </div>
-        </div>
-
-        <div class="row row-cards">
-            <div class="col-md-6">
-                <div class="card chart-card">
-                    <div class="card-header"><h3 class="card-title">Температура (T1)</h3></div>
-                    <div class="card-body"><canvas id="chart-temp" class="chart-canvas"></canvas></div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card chart-card">
-                    <div class="card-header"><h3 class="card-title">Влажность</h3></div>
-                    <div class="card-body"><canvas id="chart-humidity" class="chart-canvas"></canvas></div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card chart-card">
-                    <div class="card-header"><h3 class="card-title">Давление</h3></div>
-                    <div class="card-body"><canvas id="chart-pressure" class="chart-canvas"></canvas></div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card chart-card">
-                    <div class="card-header"><h3 class="card-title">Ветер</h3></div>
-                    <div class="card-body"><canvas id="chart-wind" class="chart-canvas"></canvas></div>
-                </div>
-            </div>
-            <div class="col-12">
-                <div class="card chart-card">
-                    <div class="card-header"><h3 class="card-title">Качество воздуха и осадки</h3></div>
-                    <div class="card-body"><canvas id="chart-extra" class="chart-canvas chart-canvas-lg"></canvas></div>
-                </div>
-            </div>
-            <div class="col-lg-8">
-                <div class="card chart-card">
-                    <div class="card-header"><h3 class="card-title">Тепловая карта температуры по часам (T1)</h3></div>
-                    <div class="card-body">
-                        <div id="heatmap" class="heatmap-grid"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-4">
-                <div class="card chart-card">
-                    <div class="card-header"><h3 class="card-title">Календарь аномалий</h3></div>
-                    <div class="card-body">
-                        <div id="anomaly-calendar" class="anomaly-calendar"></div>
-                        <div class="small text-secondary mt-3">
-                            <span class="badge bg-green-lt text-green">Норма</span>
-                            <span class="badge bg-yellow-lt text-yellow ms-1">Риск</span>
-                            <span class="badge bg-red-lt text-red ms-1">Аномалия</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="page-header-right">
+      <div class="seg" id="range-switcher">
+        {% for option in [1, 3, 7, 30] %}
+        <a class="seg-btn {% if option == days %}active{% endif %}" href="/charts?days={{ option }}">{{ option }}д</a>
+        {% endfor %}
+      </div>
     </div>
-</div>
+  </header>
+
+  <div id="charts-status" class="chart-status" hidden></div>
+
+  <div class="charts-grid">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Температура (T1)</div><span class="card-code">T1</span></div>
+      <canvas id="chart-temp" class="chart-canvas"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Влажность</div><span class="card-code">RH / H1 / H2</span></div>
+      <canvas id="chart-humidity" class="chart-canvas"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Давление</div><span class="card-code">PRESS / HPA</span></div>
+      <canvas id="chart-pressure" class="chart-canvas"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Ветер</div><span class="card-code">WS</span></div>
+      <canvas id="chart-wind" class="chart-canvas"></canvas>
+    </div>
+    <div class="card full">
+      <div class="card-head"><div class="card-title">Качество воздуха и осадки</div><span class="card-code">PM2 / PM10 / RAIN2</span></div>
+      <canvas id="chart-extra" class="chart-canvas chart-canvas-lg"></canvas>
+    </div>
+  </div>
+
+  <div class="charts-bottom">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Тепловая карта температуры по часам (T1)</div><span class="card-code">30 дней</span></div>
+      <div id="heatmap" class="heatmap-grid"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Календарь аномалий</div></div>
+      <div id="anomaly-calendar" class="anomaly-calendar"></div>
+      <div class="legend-row">
+        <span class="pill pill-good">Норма</span>
+        <span class="pill pill-warn">Риск</span>
+        <span class="pill pill-bad">Аномалия</span>
+      </div>
+    </div>
+  </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
 const days = {{ days }};
-const palette = {
-  orange: "#f97316",
-  blue: "#2563eb",
-  mint: "#059669",
-  red: "#dc2626",
-  amber: "#d97706",
-  gray: "#6b7280"
-};
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function isDarkTheme() {
+  return document.documentElement.getAttribute("data-bs-theme") === "dark";
+}
+function axisColor() { return cssVar("--muted") || (isDarkTheme() ? "#9eb0c7" : "#667382"); }
+function gridColor() { return cssVar("--grid"); }
+function legendColor() { return cssVar("--ink"); }
+
+function showStatus(text) {
+  const panel = document.getElementById("charts-status");
+  if (!panel) return;
+  panel.textContent = text;
+  panel.hidden = false;
+}
 
 function datasetByIds(series, ids, color, fallbackLabel) {
   for (const id of ids) {
@@ -112,31 +95,12 @@ function datasetByIds(series, ids, color, fallbackLabel) {
         backgroundColor: color,
         tension: 0.28,
         fill: false,
-        pointRadius: 0
+        pointRadius: 0,
+        borderWidth: 1.6
       };
     }
   }
   return null;
-}
-
-function isDarkTheme() {
-  return document.documentElement.getAttribute("data-bs-theme") === "dark";
-}
-function axisColor() {
-  return isDarkTheme() ? "#9eb0c7" : "#667382";
-}
-function gridColor() {
-  return isDarkTheme() ? "rgba(148, 163, 184, 0.2)" : "rgba(145, 158, 171, 0.2)";
-}
-function legendColor() {
-  return isDarkTheme() ? "#f1f5f9" : "#334155";
-}
-function showStatus(text) {
-  const panel = document.getElementById("charts-status");
-  const statusText = document.getElementById("charts-status-text");
-  if (!panel || !statusText) return;
-  statusText.textContent = text;
-  panel.hidden = false;
 }
 
 function createChart(elementId, datasets) {
@@ -152,19 +116,11 @@ function createChart(elementId, datasets) {
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
       scales: {
-        x: {
-          type: "time",
-          time: { tooltipFormat: "yyyy-MM-dd HH:mm" },
-          ticks: { color: axisColor() },
-          grid: { color: gridColor() }
-        },
-        y: {
-          ticks: { color: axisColor() },
-          grid: { color: gridColor() }
-        }
+        x: { type: "time", time: { tooltipFormat: "yyyy-MM-dd HH:mm" }, ticks: { color: axisColor() }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor() }, grid: { color: gridColor() } }
       },
       plugins: {
-        legend: { labels: { color: legendColor() } }
+        legend: { labels: { color: legendColor(), font: { size: 11 }, boxWidth: 14, boxHeight: 2 } }
       }
     }
   });
@@ -172,7 +128,7 @@ function createChart(elementId, datasets) {
 }
 
 function colorByTemp(value) {
-  if (value === null || value === undefined) return "var(--tblr-muted)";
+  if (value === null || value === undefined) return cssVar("--surface-2");
   if (value < -20) return "#1d4ed8";
   if (value < -10) return "#2563eb";
   if (value < 0) return "#0ea5e9";
@@ -186,24 +142,25 @@ function renderHeatmap(payload) {
   const root = document.getElementById("heatmap");
   if (!root) return;
   if (!payload || !Array.isArray(payload.labels) || !Array.isArray(payload.hours) || !Array.isArray(payload.matrix)) {
-    root.innerHTML = '<div class="text-secondary">Нет данных для тепловой карты.</div>';
+    root.innerHTML = '<div class="muted small">Нет данных для тепловой карты.</div>';
     return;
   }
 
   const header = ['<div class="cell head"></div>'];
-  for (const h of payload.hours) header.push(`<div class="cell head">${h.slice(0,2)}</div>`);
+  for (const h of payload.hours) header.push('<div class="cell head">' + h.slice(0,2) + '</div>');
   const rows = [header.join("")];
 
   for (let i = 0; i < payload.labels.length; i += 1) {
     const date = payload.labels[i];
     const values = payload.matrix[i] || [];
-    const parts = [`<div class="cell date">${date.slice(5)}</div>`];
+    const parts = ['<div class="cell date">' + date.slice(5) + '</div>'];
     for (let hour = 0; hour < payload.hours.length; hour += 1) {
       const value = values[hour];
-      const title = value === null || value === undefined ? `${date} ${payload.hours[hour]}: нет данных` : `${date} ${payload.hours[hour]}: ${value.toFixed(2)} °C`;
-      const style = `background:${colorByTemp(value)};`;
-      const text = value === null || value === undefined ? "" : value.toFixed(0);
-      parts.push(`<div class="cell value" style="${style}" title="${title}">${text}</div>`);
+      const title = (value === null || value === undefined)
+        ? date + ' ' + payload.hours[hour] + ': нет данных'
+        : date + ' ' + payload.hours[hour] + ': ' + value.toFixed(2) + ' °C';
+      const text = (value === null || value === undefined) ? "" : value.toFixed(0);
+      parts.push('<div class="cell value" style="background:' + colorByTemp(value) + ';" title="' + title + '">' + text + '</div>');
     }
     rows.push(parts.join(""));
   }
@@ -214,46 +171,53 @@ function renderAnomalyCalendar(payload) {
   const root = document.getElementById("anomaly-calendar");
   if (!root) return;
   if (!payload || !Array.isArray(payload.days) || !payload.days.length) {
-    root.innerHTML = '<div class="text-secondary">Нет данных.</div>';
+    root.innerHTML = '<div class="muted small">Нет данных.</div>';
     return;
   }
   const parts = [];
   for (const day of payload.days) {
     const cls = day.level === "high" ? "high" : day.level === "medium" ? "medium" : "ok";
     const reason = Array.isArray(day.reasons) && day.reasons.length ? day.reasons.join(", ") : "Норма";
-    parts.push(`<div class="day ${cls}" title="${day.date}: ${reason}">${day.day}</div>`);
+    parts.push('<div class="day ' + cls + '" title="' + day.date + ': ' + reason + '">' + day.day + '</div>');
   }
   root.innerHTML = parts.join("");
 }
 
-fetch(`/api/chart-data?days=${days}`)
-  .then((response) => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-  })
+const palette = {
+  temp:   cssVar("--c-temp")  || "#f97316",
+  hum:    cssVar("--c-hum")   || "#059669",
+  press:  cssVar("--c-press") || "#d97706",
+  wind:   cssVar("--c-wind")  || "#2563eb",
+  rain:   cssVar("--c-rain")  || "#0284c7",
+  red:    cssVar("--red")     || "#dc2626",
+  muted:  cssVar("--muted")   || "#6b7280",
+};
+
+fetch("/api/chart-data?days=" + days)
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error("HTTP " + response.status)))
   .then((payload) => {
     const series = payload.series || {};
     const built = [
-      createChart("chart-temp", [datasetByIds(series, ["T1"], palette.orange)]),
-      createChart("chart-humidity", [datasetByIds(series, ["RH", "H1", "H2"], palette.mint)]),
-      createChart("chart-pressure", [datasetByIds(series, ["PRESS", "HPA"], palette.amber)]),
-      createChart("chart-wind", [datasetByIds(series, ["WS"], palette.blue), datasetByIds(series, ["WS1"], palette.gray)]),
-      createChart("chart-extra", [datasetByIds(series, ["PM2"], palette.red), datasetByIds(series, ["PM10"], palette.gray), datasetByIds(series, ["RAIN2"], palette.mint)])
+      createChart("chart-temp",     [datasetByIds(series, ["T1"], palette.temp)]),
+      createChart("chart-humidity", [datasetByIds(series, ["RH","H1","H2"], palette.hum)]),
+      createChart("chart-pressure", [datasetByIds(series, ["PRESS","HPA"], palette.press)]),
+      createChart("chart-wind",     [datasetByIds(series, ["WS"], palette.wind), datasetByIds(series, ["WS1"], palette.muted)]),
+      createChart("chart-extra",    [datasetByIds(series, ["PM2"], palette.red), datasetByIds(series, ["PM10"], palette.muted), datasetByIds(series, ["RAIN2"], palette.rain)])
     ];
     if (built.every((v) => v === false)) {
       showStatus("Нет данных за выбранный период. Проверьте, что станция отправляет телеметрию.");
     }
   })
-  .catch((error) => showStatus(`Ошибка загрузки графиков: ${error.message}`));
+  .catch((error) => showStatus("Ошибка загрузки графиков: " + error.message));
 
 fetch("/api/temperature-heatmap?days=30")
-  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
-  .then((payload) => renderHeatmap(payload))
+  .then((r) => r.ok ? r.json() : Promise.reject())
+  .then(renderHeatmap)
   .catch(() => renderHeatmap(null));
 
 fetch("/api/anomaly-calendar")
-  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
-  .then((payload) => renderAnomalyCalendar(payload))
+  .then((r) => r.ok ? r.json() : Promise.reject())
+  .then(renderAnomalyCalendar)
   .catch(() => renderAnomalyCalendar(null));
 </script>
 {% endblock %}

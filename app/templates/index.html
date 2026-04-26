@@ -1,384 +1,521 @@
 {% extends "base.html" %}
-{% block title %}Главная | Метеостанция{% endblock %}
-{% block head %}
-<script src="/static/vendor/chartjs/chart.umd.min.js"></script>
-{% endblock %}
+{% block title %}Главная | {{ app_title }}{% endblock %}
+
+{%- macro fmt_num(value, digits=2) -%}
+{%- if value is none -%}—{%- else -%}{{ "%.*f"|format(digits, value) }}{%- endif -%}
+{%- endmacro -%}
+
 {% block content %}
-<div class="page-header d-print-none">
-    <div class="container-xl">
-        <div class="row g-2 align-items-center">
-            <div class="col">
-                <div class="page-pretitle">Локальная метеостанция</div>
-                <h2 class="page-title">Текущая погода</h2>
-                {% if snapshot %}
-                <div class="text-secondary mt-1">
-                    Обновлено: <span id="received-badge">{{ snapshot.received_freshness }} {{ snapshot.received_ago }}</span> ({{ snapshot.received_local }}).
-                </div>
-                {% else %}
-                <div class="text-secondary mt-1">Данных пока нет. Отправьте первый POST на <code>/api/ingest</code>.</div>
-                {% endif %}
-            </div>
-            <div class="col-auto">
-                <label class="form-check form-switch m-0">
-                    <input id="live-mode" class="form-check-input" type="checkbox">
-                    <span class="form-check-label">Живой режим</span>
-                </label>
-            </div>
-        </div>
+
+  {# ---------- Header ---------- #}
+  <header class="a-header">
+    <div>
+      <div class="eyebrow">{{ site_brand|upper }}</div>
+      <h1 class="a-title">Текущая погода</h1>
+      {% if snapshot %}
+      <div class="a-sub">
+        Обновлено: <span class="dot dot-green"></span>{{ snapshot.received_ago }}
+        <span class="muted">({{ snapshot.received_local }})</span>
+      </div>
+      {% else %}
+      <div class="a-sub muted">Данных пока нет. Отправьте первый POST на <span class="mono">/api/ingest</span>.</div>
+      {% endif %}
     </div>
-</div>
+    <div class="a-header-right">
+      <div class="seg" id="range-switcher">
+        <button class="seg-btn" data-range="1h">1ч</button>
+        <button class="seg-btn active" data-range="24h">24ч</button>
+        <button class="seg-btn" data-range="7d">7д</button>
+        <button class="seg-btn" data-range="30d">30д</button>
+      </div>
+      <label class="switch">
+        <input id="live-mode" type="checkbox">
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        Живой режим
+      </label>
+    </div>
+  </header>
 
-<div class="page-body">
-    <div class="container-xl">
-        {% if snapshot %}
-        <div class="row row-cards">
-            {% for reading in snapshot.primary_readings %}
-            <div class="col-sm-6 col-xl-4">
-                <div class="card metric-tile">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div class="text-secondary mb-1">{{ reading.sensor_name }}</div>
-                            <span class="badge badge-outline">{{ reading.sensor_id }}</span>
-                        </div>
-                        <div class="display-6 fw-bold mb-1">{{ "%.2f"|format(reading.value) }}</div>
-                        <div class="text-blue fw-semibold mb-2">{{ reading.unit or "—" }}</div>
-                        <canvas class="metric-sparkline" id="spark-{{ reading.sensor_id }}"></canvas>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
+  {% if not snapshot %}
+  <div class="card empty-card">
+    <h2>Телеметрия еще не поступала</h2>
+    <div>После первого пакета на <span class="mono">/api/ingest</span> здесь появятся карточки и аналитика.</div>
+  </div>
+  {% else %}
 
-        <div class="row row-cards mt-2">
-            <div class="col-lg-4">
-                <div class="card h-100">
-                    <div class="card-header">
-                        <h3 class="card-title">Комфорт/риск</h3>
-                        <div class="card-actions">
-                            <span class="badge comfort-{{ comfort.level }}">{{ comfort.state }}</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="text-secondary mb-2">{{ comfort.description }}</div>
-                        <div class="d-flex flex-column gap-2 small">
-                            <div>Температура: <strong>{{ "%.2f"|format(comfort.temperature.value) }} {{ comfort.temperature.unit }}</strong></div>
-                            <div>Влажность: <strong>{{ "%.2f"|format(comfort.humidity.value) }} {{ comfort.humidity.unit }}</strong></div>
-                            <div>Давление: <strong>{{ "%.2f"|format(comfort.pressure.value) }} {{ comfort.pressure.unit }}</strong></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+  {# ---------- Resolve key readings (namespace, чтобы переменные жили вне for) ---------- #}
+  {% set readings_by_id = {} %}
+  {% for r in snapshot.readings %}{% set _ = readings_by_id.update({r.sensor_id|string|upper: r}) %}{% endfor %}
 
-            <div class="col-lg-4">
-                <div class="card h-100">
-                    <div class="card-header">
-                        <h3 class="card-title">Мин/макс T1 за сегодня</h3>
-                        <div class="card-actions"><span class="badge badge-outline">{{ temp_extremes.date }}</span></div>
-                    </div>
-                    <div class="card-body">
-                        {% if temp_extremes.min and temp_extremes.max %}
-                        <div class="d-flex flex-column gap-3">
-                            <div class="d-flex justify-content-between">
-                                <div class="text-secondary">Минимум</div>
-                                <div class="text-end">
-                                    <div class="fw-bold text-blue">{{ "%.2f"|format(temp_extremes.min.value) }} {{ temp_extremes.min.unit }}</div>
-                                    <div class="text-secondary">в {{ temp_extremes.min.time }}</div>
-                                </div>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <div class="text-secondary">Максимум</div>
-                                <div class="text-end">
-                                    <div class="fw-bold text-orange">{{ "%.2f"|format(temp_extremes.max.value) }} {{ temp_extremes.max.unit }}</div>
-                                    <div class="text-secondary">в {{ temp_extremes.max.time }}</div>
-                                </div>
-                            </div>
-                        </div>
-                        {% else %}
-                        <div class="text-secondary">За сегодня по T1 данных пока нет.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
+  {% set ns = namespace(t=none, rh=none, p=none) %}
+  {% for sid in ['T1','T2','T3','T4','T5','T6'] %}
+    {% if ns.t is none and sid in readings_by_id %}{% set ns.t = readings_by_id[sid] %}{% endif %}
+  {% endfor %}
+  {% for sid in ['RH','H1','H2'] %}
+    {% if ns.rh is none and sid in readings_by_id %}{% set ns.rh = readings_by_id[sid] %}{% endif %}
+  {% endfor %}
+  {% for sid in ['PRESS','HPA'] %}
+    {% if ns.p is none and sid in readings_by_id %}{% set ns.p = readings_by_id[sid] %}{% endif %}
+  {% endfor %}
+  {% set t_reading = ns.t %}
+  {% set rh_reading = ns.rh %}
+  {% set p_reading = ns.p %}
 
-            <div class="col-lg-4">
-                <div class="card h-100">
-                    <div class="card-header">
-                        <h3 class="card-title">Сравнение периодов (T1)</h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="small text-secondary mb-2">Сегодня ({{ comparison.today_date }})</div>
-                        <div class="row g-2">
-                            <div class="col-12">
-                                <div class="comparison-block p-2 rounded border">
-                                    <div class="small fw-semibold mb-1">День (07:00-18:59)</div>
-                                    <div class="small text-secondary mb-2">
-                                        Сегодня:
-                                        {% if comparison.day.today_avg is not none %}
-                                            <strong>{{ "%.2f"|format(comparison.day.today_avg) }} °C</strong>
-                                        {% else %}
-                                            —
-                                        {% endif %}
-                                    </div>
-                                    <div class="table-responsive">
-                                        <table class="table table-sm table-vcenter mb-0">
-                                            <thead>
-                                                <tr>
-                                                    <th>Период</th>
-                                                    <th class="text-end">Средняя</th>
-                                                    <th class="text-end">Δ</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {% for row in comparison.day.rows %}
-                                                <tr>
-                                                    <td>{{ row.label }}</td>
-                                                    <td class="text-end">{% if row.avg is not none %}{{ "%.2f"|format(row.avg) }} °C{% else %}—{% endif %}</td>
-                                                    <td class="text-end">
-                                                        {% if row.delta is not none %}
-                                                            <span class="{% if row.delta > 0 %}text-red{% elif row.delta < 0 %}text-blue{% else %}text-secondary{% endif %}">
-                                                                {{ "%+.2f"|format(row.delta) }} °C
-                                                            </span>
-                                                        {% else %}
-                                                            —
-                                                        {% endif %}
-                                                    </td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-12">
-                                <div class="comparison-block p-2 rounded border">
-                                    <div class="small fw-semibold mb-1">Ночь (19:00-06:59)</div>
-                                    <div class="small text-secondary mb-2">
-                                        Сегодня:
-                                        {% if comparison.night.today_avg is not none %}
-                                            <strong>{{ "%.2f"|format(comparison.night.today_avg) }} °C</strong>
-                                        {% else %}
-                                            —
-                                        {% endif %}
-                                    </div>
-                                    <div class="table-responsive">
-                                        <table class="table table-sm table-vcenter mb-0">
-                                            <thead>
-                                                <tr>
-                                                    <th>Период</th>
-                                                    <th class="text-end">Средняя</th>
-                                                    <th class="text-end">Δ</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {% for row in comparison.night.rows %}
-                                                <tr>
-                                                    <td>{{ row.label }}</td>
-                                                    <td class="text-end">{% if row.avg is not none %}{{ "%.2f"|format(row.avg) }} °C{% else %}—{% endif %}</td>
-                                                    <td class="text-end">
-                                                        {% if row.delta is not none %}
-                                                            <span class="{% if row.delta > 0 %}text-red{% elif row.delta < 0 %}text-blue{% else %}text-secondary{% endif %}">
-                                                                {{ "%+.2f"|format(row.delta) }} °C
-                                                            </span>
-                                                        {% else %}
-                                                            —
-                                                        {% endif %}
-                                                    </td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+  {# ---------- Primary metrics row ---------- #}
+  <div class="a-grid">
 
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title">Uptime Monitor</h3>
-                        <div class="card-actions">
-                            <span class="badge bg-green-lt text-green">{{ "%.1f"|format(uptime.availability) }}%</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="text-secondary mb-2">Активность входящих пакетов за {{ uptime.hours }} часа</div>
-                        <canvas id="uptime-chart" class="uptime-chart"></canvas>
-                        <div class="mt-3 text-secondary">Последний пакет: {{ uptime.freshness }} {{ uptime.last_seen_ago }}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    {# T1 #}
+    <div class="card metric-card">
+      <div class="card-head">
+        <div class="card-title">Температура</div>
+        <span class="card-code">{{ t_reading.sensor_id if t_reading else 'T1' }}</span>
+      </div>
+      <div class="metric-big">
+        <span class="mono">{{ fmt_num(t_reading.value if t_reading else none) }}</span>
+        <span class="metric-unit" style="color: var(--c-temp);">{{ (t_reading.unit if t_reading else '') or '°C' }}</span>
+      </div>
+      <div class="trend">
+        {% if temp_extremes.min and temp_extremes.max %}
+          за сегодня min {{ fmt_num(temp_extremes.min.value, 1) }}° / max {{ fmt_num(temp_extremes.max.value, 1) }}°
         {% else %}
-        <div class="row row-cards">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h3 class="card-title">Телеметрия еще не поступала</h3>
-                        <div class="text-secondary">После первого пакета данных на <code>/api/ingest</code> здесь появятся карточки и аналитика.</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+          датчик температуры
         {% endif %}
+      </div>
+      <div class="metric-chart" data-spark="T1" data-color="var(--c-temp)"></div>
     </div>
-</div>
+
+    {# RH #}
+    <div class="card metric-card">
+      <div class="card-head">
+        <div class="card-title">Влажность</div>
+        <span class="card-code">{{ rh_reading.sensor_id if rh_reading else 'RH' }}</span>
+      </div>
+      <div class="metric-big">
+        <span class="mono">{{ fmt_num(rh_reading.value if rh_reading else none) }}</span>
+        <span class="metric-unit" style="color: var(--c-hum);">{{ (rh_reading.unit if rh_reading else '') or '%' }}</span>
+      </div>
+      <div class="trend">
+        {% if humidity_extremes.min and humidity_extremes.max %}
+          за сегодня min {{ fmt_num(humidity_extremes.min.value, 0) }}% / max {{ fmt_num(humidity_extremes.max.value, 0) }}%
+        {% else %}
+          относительная влажность
+        {% endif %}
+      </div>
+      <div class="metric-chart" data-spark="RH" data-color="var(--c-hum)"></div>
+    </div>
+
+    {# PRESS #}
+    <div class="card metric-card">
+      <div class="card-head">
+        <div class="card-title">Давление</div>
+        <span class="card-code">{{ p_reading.sensor_id if p_reading else 'PRESS' }}</span>
+      </div>
+      <div class="metric-big">
+        <span class="mono">{{ fmt_num(p_reading.value if p_reading else none) }}</span>
+        <span class="metric-unit" style="color: var(--c-press);">{{ (p_reading.unit if p_reading else '') or 'мм рт.ст.' }}</span>
+      </div>
+      <div class="trend muted">атмосферное давление</div>
+      <div class="metric-chart" data-spark="PRESS" data-color="var(--c-press)"></div>
+    </div>
+
+    {# Wind — заглушка #}
+    <div class="card metric-card empty">
+      <div class="card-head">
+        <div class="card-title">Ветер</div>
+        <span class="card-code">WIND</span>
+      </div>
+      <div class="metric-big">
+        <span class="mono">—</span>
+        <span class="metric-unit" style="color: var(--c-wind);">м/с</span>
+      </div>
+      <div class="trend muted">направление и сила — датчик в плане</div>
+      <div class="metric-chart placeholder">Нет данных</div>
+    </div>
+
+    {# Rain — заглушка #}
+    <div class="card metric-card empty">
+      <div class="card-head">
+        <div class="card-title">Осадки</div>
+        <span class="card-code">RAIN</span>
+      </div>
+      <div class="metric-big">
+        <span class="mono">—</span>
+        <span class="metric-unit" style="color: var(--c-rain);">мм</span>
+      </div>
+      <div class="trend muted">осадки за сутки — датчик в плане</div>
+      <div class="metric-chart placeholder">Нет данных</div>
+    </div>
+
+    {# Comfort #}
+    <div class="card metric-card comfort-card">
+      <div class="card-head">
+        <div class="card-title">Индекс комфорта</div>
+        <span class="pill pill-{{ {'good':'good','watch':'warn','risk':'bad'}.get(comfort.level,'neutral') }}">{{ comfort.state }}</span>
+      </div>
+      <div class="comfort-body">
+        <div class="comfort-gauge" data-gauge-score="{{ comfort.score }}" data-gauge-tone="{{ {'good':'good','watch':'warn','risk':'bad'}.get(comfort.level,'ok') }}"></div>
+        <div class="comfort-factors">
+          {% set t_ok = (comfort.temperature.value >= 16 and comfort.temperature.value <= 28) %}
+          {% set rh_ok = (comfort.humidity.value >= 30 and comfort.humidity.value <= 65) %}
+          {% set p_ok = (comfort.pressure.value >= 730 and comfort.pressure.value <= 780) %}
+          <div class="factor">
+            <span class="factor-dot {{ 'ok' if t_ok else 'warn' }}"></span>
+            <span class="muted">Температура</span>
+            <span class="factor-val mono">{{ fmt_num(comfort.temperature.value, 1) }} {{ comfort.temperature.unit }}</span>
+          </div>
+          <div class="factor">
+            <span class="factor-dot {{ 'ok' if rh_ok else 'warn' }}"></span>
+            <span class="muted">Влажность</span>
+            <span class="factor-val mono">{{ fmt_num(comfort.humidity.value, 0) }} {{ comfort.humidity.unit }}</span>
+          </div>
+          <div class="factor">
+            <span class="factor-dot {{ 'ok' if p_ok else 'warn' }}"></span>
+            <span class="muted">Давление</span>
+            <span class="factor-val mono">{{ fmt_num(comfort.pressure.value, 1) }} {{ comfort.pressure.unit }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="comfort-note">{{ comfort.description }}</div>
+    </div>
+
+  </div>
+
+  {# ---------- Bottom row ---------- #}
+  <div class="a-bottom">
+
+    {# Min/Max: T + RH в одной карточке #}
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Мин/макс за сегодня</div>
+        <span class="card-code">{{ temp_extremes.date }}</span>
+      </div>
+
+      {# T block #}
+      <div class="minmax-block">
+        <div class="minmax-block-title">
+          <span>Температура · {{ temp_extremes.sensor_id or 'T1' }}</span>
+          {% if t_reading %}<span class="mono muted">сейчас {{ fmt_num(t_reading.value, 1) }}°</span>{% endif %}
+        </div>
+        {% if temp_extremes.min and temp_extremes.max %}
+          {% set t_now = t_reading.value if t_reading else None %}
+          {% set t_lo = temp_extremes.min.value %}
+          {% set t_hi = temp_extremes.max.value %}
+          {% set t_pos = ((t_now - t_lo) / (t_hi - t_lo) * 100) if (t_now is not none and t_hi != t_lo) else 50 %}
+          {% set t_pos = 0 if t_pos < 0 else (100 if t_pos > 100 else t_pos) %}
+          <div class="minmax-row">
+            <div>
+              <div class="muted">Минимум</div>
+              <div class="mono big blue">{{ fmt_num(t_lo) }} {{ temp_extremes.min.unit }}</div>
+              <div class="muted">в {{ temp_extremes.min.time }}</div>
+            </div>
+            <div>
+              <div class="muted">Максимум</div>
+              <div class="mono big orange">{{ fmt_num(t_hi) }} {{ temp_extremes.max.unit }}</div>
+              <div class="muted">в {{ temp_extremes.max.time }}</div>
+            </div>
+          </div>
+          <div class="minmax-bar">
+            <div class="minmax-bar-track temp">
+              {% if t_now is not none %}
+              <div class="minmax-bar-marker" style="left: {{ '%.1f'|format(t_pos) }}%;">
+                <div class="minmax-bar-dot"></div>
+                <div class="minmax-bar-label mono">сейчас {{ fmt_num(t_now, 1) }}°</div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="minmax-axis">
+              <span class="mono">{{ fmt_num(t_lo, 1) }}°</span>
+              <span class="mono">{{ fmt_num(t_hi, 1) }}°</span>
+            </div>
+          </div>
+        {% else %}
+          <div class="muted small">За сегодня данных нет.</div>
+        {% endif %}
+      </div>
+
+      {# RH block #}
+      <div class="minmax-block">
+        <div class="minmax-block-title">
+          <span>Влажность · {{ humidity_extremes.sensor_id or 'RH' }}</span>
+          {% if rh_reading %}<span class="mono muted">сейчас {{ fmt_num(rh_reading.value, 0) }}%</span>{% endif %}
+        </div>
+        {% if humidity_extremes.min and humidity_extremes.max %}
+          {% set h_now = rh_reading.value if rh_reading else None %}
+          {% set h_lo = humidity_extremes.min.value %}
+          {% set h_hi = humidity_extremes.max.value %}
+          {% set h_pos = ((h_now - h_lo) / (h_hi - h_lo) * 100) if (h_now is not none and h_hi != h_lo) else 50 %}
+          {% set h_pos = 0 if h_pos < 0 else (100 if h_pos > 100 else h_pos) %}
+          <div class="minmax-row">
+            <div>
+              <div class="muted">Минимум</div>
+              <div class="mono big" style="color: var(--c-hum);">{{ fmt_num(h_lo, 1) }} {{ humidity_extremes.min.unit }}</div>
+              <div class="muted">в {{ humidity_extremes.min.time }}</div>
+            </div>
+            <div>
+              <div class="muted">Максимум</div>
+              <div class="mono big" style="color: var(--c-hum);">{{ fmt_num(h_hi, 1) }} {{ humidity_extremes.max.unit }}</div>
+              <div class="muted">в {{ humidity_extremes.max.time }}</div>
+            </div>
+          </div>
+          <div class="minmax-bar">
+            <div class="minmax-bar-track hum">
+              {% if h_now is not none %}
+              <div class="minmax-bar-marker" style="left: {{ '%.1f'|format(h_pos) }}%;">
+                <div class="minmax-bar-dot"></div>
+                <div class="minmax-bar-label mono">сейчас {{ fmt_num(h_now, 0) }}%</div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="minmax-axis">
+              <span class="mono">{{ fmt_num(h_lo, 0) }}%</span>
+              <span class="mono">{{ fmt_num(h_hi, 0) }}%</span>
+            </div>
+          </div>
+        {% else %}
+          <div class="muted small">За сегодня данных нет.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Period comparison #}
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Сравнение периодов (T1)</div>
+        <div class="seg seg-sm" id="period-switcher">
+          <button class="seg-btn active" data-period="day">День</button>
+          <button class="seg-btn" data-period="night">Ночь</button>
+        </div>
+      </div>
+
+      {% for kind, label, hours in [('day','День','07:00–18:59'), ('night','Ночь','19:00–06:59')] %}
+      <div data-period-target="{{ kind }}" class="{% if kind == 'day' %}active{% endif %}">
+        {% set block = comparison[kind] %}
+        <div class="comp-hero">
+          <div>
+            <div class="muted">Сегодня · средняя</div>
+            <div class="mono big" style="color: var(--c-temp);">{{ fmt_num(block.today_avg) }} °C</div>
+            <div class="muted">{{ hours }}</div>
+          </div>
+          <div class="comp-hero-chart">
+            <div class="metric-chart" data-overlay="comparison"></div>
+            <div class="comp-legend">
+              <span><span class="leg temp"></span>Сегодня</span>
+              <span><span class="leg hum"></span>Вчера</span>
+              <span><span class="leg wind"></span>Месяц назад</span>
+            </div>
+          </div>
+        </div>
+        <table class="comp-table">
+          <thead>
+            <tr><th>Период</th><th>Средняя</th><th>Δ</th><th>Дата</th></tr>
+          </thead>
+          <tbody>
+            {% for row in block.rows %}
+            <tr>
+              <td>{{ row.label }}</td>
+              <td class="mono">{% if row.avg is not none %}{{ fmt_num(row.avg) }} °C{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td class="mono {% if row.delta is not none and row.delta > 0 %}red{% elif row.delta is not none and row.delta < 0 %}green{% endif %}">
+                {% if row.delta is not none %}{{ "%+.2f"|format(row.delta) }} °C{% else %}<span class="muted">—</span>{% endif %}
+              </td>
+              <td class="muted small">{{ row.date }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
 {% endblock %}
+
 {% block scripts %}
 {% if snapshot %}
+<script id="chart-series-data" type="application/json">{{ chart_series|tojson }}</script>
+<script id="comparison-series-data" type="application/json">{{ (comparison.series or {})|tojson }}</script>
 <script>
-const sparklineConfig = {
-  T1: "#f97316",
-  RH: "#059669",
-  PRESS: "#d97706",
-  WS: "#2563eb",
-  RAIN2: "#0284c7",
-  PM2: "#dc2626",
-  PM10: "#6b7280"
-};
-
-function isDarkTheme() {
-  return document.documentElement.getAttribute("data-bs-theme") === "dark";
-}
-
-function axisColor() {
-  return isDarkTheme() ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.45)";
-}
-
-function buildSparkline(elementId, points, color, unit) {
-  const target = document.getElementById(elementId);
-  if (!target || !Array.isArray(points) || points.length < 2) return;
-
-  const maxPoints = 120;
-  const step = Math.max(1, Math.ceil(points.length / maxPoints));
-  const sampled = points.filter((_, index) => index % step === 0 || index === points.length - 1);
-
-  new Chart(target, {
-    type: "line",
-    data: {
-      labels: sampled.map((point) => {
-        const dt = new Date(point.x);
-        if (Number.isNaN(dt.getTime())) return "";
-        return dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-      }),
-      datasets: [{
-        data: sampled.map((point) => point.y),
-        borderColor: color,
-        borderWidth: 2,
-        pointRadius: 1,
-        pointHoverRadius: 4,
-        pointHitRadius: 16,
-        tension: 0.35,
-        fill: false
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false },
-      animation: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          enabled: true,
-          displayColors: false,
-          callbacks: {
-            title: (items) => items?.[0]?.label || "",
-            label: (context) => {
-              const value = context.parsed.y;
-              if (value === null || value === undefined) return "—";
-              const suffix = unit ? ` ${unit}` : "";
-              return `Значение: ${Number(value).toFixed(2)}${suffix}`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: { display: false },
-        y: {
-          display: true,
-          grid: { display: false },
-          ticks: {
-            maxTicksLimit: 3,
-            callback: (v) => Number(v).toFixed(0)
-          },
-          border: { display: false }
-        }
-      }
-    }
-  });
-}
-
-function buildUptimeChart(payload) {
-  const target = document.getElementById("uptime-chart");
-  if (!target || !payload || !Array.isArray(payload.points)) return;
-  new Chart(target, {
-    type: "bar",
-    data: {
-      labels: payload.labels,
-      datasets: [{
-        data: payload.points,
-        backgroundColor: payload.points.map((v) => (v > 0 ? "#22c55e" : "#cbd5e1")),
-        borderWidth: 0,
-        borderRadius: 4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: true } },
-      scales: {
-        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-        y: { beginAtZero: true, grid: { color: axisColor() }, ticks: { precision: 0 } }
-      }
-    }
-  });
-}
-
-fetch("/api/chart-data?days=1")
-  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
-  .then((payload) => {
-    const series = payload.series || {};
-    document.querySelectorAll(".metric-sparkline").forEach((canvas) => {
-      const sid = canvas.id.replace("spark-", "").toUpperCase();
-      const item = series[sid];
-      if (!item || !Array.isArray(item.points) || item.points.length < 2) return;
-      buildSparkline(canvas.id, item.points, sparklineConfig[sid] || "#2563eb", item.unit || "");
-    });
-  })
-  .catch(() => {});
-
-fetch("/api/uptime?hours=24")
-  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
-  .then((payload) => buildUptimeChart(payload))
-  .catch(() => {});
-
 (function () {
-  const liveModeEl = document.getElementById("live-mode");
-  if (!liveModeEl) return;
-  let timer = null;
+  const payload = JSON.parse(document.getElementById("chart-series-data").textContent || "{}");
+  const series = payload.series || {};
+  const compRaw = JSON.parse(document.getElementById("comparison-series-data").textContent || "{}");
 
-  const saved = localStorage.getItem("live-mode") === "1";
-  liveModeEl.checked = saved;
+  function resolveColor(token) {
+    if (!token || token.indexOf("var(") !== 0) return token || "#94a3b8";
+    const name = token.slice(4, -1).trim();
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#94a3b8";
+  }
 
-  const start = () => {
-    if (timer) return;
-    timer = setInterval(() => window.location.reload(), 60000);
-  };
-  const stop = () => {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = null;
-  };
-  if (saved) start();
+  function buildSparkline(container, points, color, withAxis) {
+    if (!points || points.length < 2) {
+      container.classList.add("placeholder");
+      container.textContent = "Нет данных";
+      return;
+    }
+    const W = 520, H = 96, pad = withAxis ? 12 : 4;
+    const ys = points.map(p => p.y);
+    const lo = Math.min.apply(null, ys);
+    const hi = Math.max.apply(null, ys);
+    const range = (hi - lo) || 1;
+    const w = W - pad * 2;
+    const h = H - pad * 2;
 
-  liveModeEl.addEventListener("change", () => {
-    const enabled = liveModeEl.checked;
-    localStorage.setItem("live-mode", enabled ? "1" : "0");
-    if (enabled) start(); else stop();
+    const coords = points.map((p, i) => {
+      const x = pad + (i / (points.length - 1)) * w;
+      const y = pad + h - ((p.y - lo) / range) * h;
+      return [x, y];
+    });
+    const line = coords.map((c, i) => (i === 0 ? "M" : "L") + c[0].toFixed(1) + "," + c[1].toFixed(1)).join(" ");
+
+    let grid = "";
+    if (withAxis) {
+      const N = 3;
+      for (let i = 0; i <= N; i++) {
+        const y = pad + (i / N) * h;
+        const val = hi - (i / N) * range;
+        grid +=
+          '<line x1="' + pad + '" y1="' + y.toFixed(1) + '" x2="' + (W - pad) + '" y2="' + y.toFixed(1) +
+          '" stroke="' + resolveColor("var(--grid)") + '" stroke-width="0.5" stroke-dasharray="' + (i === N ? '0' : '2 3') + '"/>' +
+          '<text x="' + (pad - 2) + '" y="' + (y - 2).toFixed(1) +
+          '" font-size="9" fill="' + resolveColor("var(--muted)") + '" text-anchor="end" font-family="' + getComputedStyle(document.documentElement).getPropertyValue("--font-mono") + '">' +
+          val.toFixed(0) + '</text>';
+      }
+    }
+    container.classList.remove("placeholder");
+    container.innerHTML =
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + grid +
+      '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '</svg>';
+  }
+
+  function buildOverlay(container, layers) {
+    // layers = [{name, points: [{x, y}], color, dashed}]
+    const present = layers.filter(l => l.points && l.points.length >= 2);
+    if (!present.length) {
+      container.classList.add("placeholder");
+      container.textContent = "Нет данных";
+      return;
+    }
+    const W = 520, H = 80, pad = 4;
+    const allY = present.flatMap(l => l.points.map(p => p.y));
+    const lo = Math.min.apply(null, allY);
+    const hi = Math.max.apply(null, allY);
+    const range = (hi - lo) || 1;
+    const w = W - pad * 2, h = H - pad * 2;
+    function path(points) {
+      return points.map((p, i) => {
+        const x = pad + (i / (points.length - 1)) * w;
+        const y = pad + h - ((p.y - lo) / range) * h;
+        return (i === 0 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1);
+      }).join(" ");
+    }
+    container.classList.remove("placeholder");
+    const paths = present.map(l =>
+      '<path d="' + path(l.points) + '" fill="none" stroke="' + l.color +
+      '" stroke-width="' + (l.emphasis ? 1.8 : 1) +
+      '" stroke-dasharray="' + (l.dashed ? "3 3" : "0") +
+      '" opacity="' + (l.emphasis ? 1 : 0.75) + '"/>'
+    ).join("");
+    container.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + paths + '</svg>';
+  }
+
+  function compactPoints(rawHourly) {
+    if (!Array.isArray(rawHourly)) return null;
+    return rawHourly
+      .filter(item => item && item.value !== null && item.value !== undefined)
+      .map(item => ({ x: item.hour, y: item.value }));
+  }
+
+  function renderAll() {
+    document.querySelectorAll(".metric-chart[data-spark]").forEach(function (el) {
+      const sid = el.getAttribute("data-spark");
+      const color = resolveColor(el.getAttribute("data-color") || "");
+      const withAxis = el.getAttribute("data-no-axis") !== "1";
+      const item = series[sid];
+      buildSparkline(el, item ? item.points : null, color, withAxis);
+    });
+    document.querySelectorAll(".metric-chart[data-overlay='comparison']").forEach(function (el) {
+      buildOverlay(el, [
+        { name: "monthAgo", points: compactPoints(compRaw.monthAgo), color: resolveColor("var(--c-wind)"), dashed: true },
+        { name: "yesterday", points: compactPoints(compRaw.yesterday), color: resolveColor("var(--c-hum)"), dashed: true },
+        { name: "today", points: compactPoints(compRaw.today), color: resolveColor("var(--c-temp)"), emphasis: true },
+      ]);
+    });
+  }
+  renderAll();
+  window.addEventListener("theme-changed", renderAll);
+
+  // Comfort gauge
+  document.querySelectorAll(".comfort-gauge[data-gauge-score]").forEach(function (el) {
+    const score = parseFloat(el.getAttribute("data-gauge-score")) || 0;
+    const tone = el.getAttribute("data-gauge-tone") || "ok";
+    const size = 140, r = 50, cx = size / 2, cy = size / 2 + 10;
+    const startA = Math.PI, endA = 2 * Math.PI;
+    const pct = Math.max(0, Math.min(1, score / 100));
+    const arcA = startA + (endA - startA) * pct;
+    const x1 = cx + Math.cos(startA) * r, y1 = cy + Math.sin(startA) * r;
+    const x2 = cx + Math.cos(arcA) * r, y2 = cy + Math.sin(arcA) * r;
+    const large = (arcA - startA) > Math.PI ? 1 : 0;
+    el.innerHTML =
+      '<svg viewBox="0 0 ' + size + ' 90" preserveAspectRatio="xMidYMid meet">' +
+      '<path d="M' + (cx - r) + ',' + cy + ' A' + r + ',' + r + ' 0 0 1 ' + (cx + r) + ',' + cy +
+      '" stroke="var(--grid)" stroke-width="8" fill="none" stroke-linecap="round"/>' +
+      '<path d="M' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' A' + r + ',' + r + ' 0 ' + large + ' 1 ' +
+      x2.toFixed(1) + ',' + y2.toFixed(1) + '" stroke="var(--tone-' + tone + ')" stroke-width="8" fill="none" stroke-linecap="round"/>' +
+      '<text x="' + cx + '" y="' + (cy - 10) +
+      '" font-size="22" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)" font-weight="600">' +
+      score.toFixed(0) + '</text>' +
+      '<text x="' + cx + '" y="' + (cy + 5) +
+      '" font-size="9" text-anchor="middle" fill="var(--muted)" letter-spacing="0.5">ИНДЕКС</text>' +
+      '</svg>';
   });
+
+  // Period switcher (день/ночь)
+  const periodSwitcher = document.getElementById("period-switcher");
+  if (periodSwitcher) {
+    periodSwitcher.addEventListener("click", function (e) {
+      const btn = e.target.closest("[data-period]");
+      if (!btn) return;
+      const target = btn.getAttribute("data-period");
+      periodSwitcher.querySelectorAll(".seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+      document.querySelectorAll("[data-period-target]").forEach(p => {
+        p.classList.toggle("active", p.getAttribute("data-period-target") === target);
+      });
+      renderAll();
+    });
+  }
+
+  // Range switcher
+  const rangeSwitcher = document.getElementById("range-switcher");
+  if (rangeSwitcher) {
+    rangeSwitcher.addEventListener("click", function (e) {
+      const btn = e.target.closest("[data-range]");
+      if (!btn) return;
+      rangeSwitcher.querySelectorAll(".seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+      const range = btn.getAttribute("data-range");
+      const days = range === "1h" ? 1 : range === "24h" ? 1 : range === "7d" ? 7 : 30;
+      fetch("/api/chart-data?days=" + days)
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(data => { Object.assign(series, data.series || {}); renderAll(); })
+        .catch(() => {});
+    });
+  }
+
+  // Live mode (раз в минуту)
+  const liveModeEl = document.getElementById("live-mode");
+  if (liveModeEl) {
+    let timer = null;
+    const saved = localStorage.getItem("live-mode") === "1";
+    liveModeEl.checked = saved;
+    const start = () => { if (!timer) timer = setInterval(() => window.location.reload(), 60000); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    if (saved) start();
+    liveModeEl.addEventListener("change", () => {
+      const on = liveModeEl.checked;
+      localStorage.setItem("live-mode", on ? "1" : "0");
+      on ? start() : stop();
+    });
+  }
 })();
 </script>
 {% endif %}

@@ -475,38 +475,49 @@ def get_uptime_monitor(hours: int = 24) -> dict[str, Any]:
     }
 
 
-def get_today_temperature_extremes() -> dict[str, Any]:
+def get_today_extremes(sensor_ids: tuple[str, ...], default_unit: str = "") -> dict[str, Any]:
+    """Min/max за сегодня по первому sensor_id из списка, по которому есть данные."""
     now_local = datetime.now(LOCAL_TZ)
     day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end_local = day_start_local + timedelta(days=1)
     day_start_utc = day_start_local.astimezone(UTC).isoformat()
     day_end_utc = day_end_local.astimezone(UTC).isoformat()
 
+    resolved_id: str | None = None
+    min_row = None
+    max_row = None
     with get_connection() as connection:
-        min_row = connection.execute(
-            """
-            SELECT observed_at, value, unit
-            FROM observations
-            WHERE upper(sensor_id) = 'T1'
-              AND julianday(observed_at) >= julianday(?)
-              AND julianday(observed_at) < julianday(?)
-            ORDER BY value ASC, observed_at ASC
-            LIMIT 1
-            """,
-            (day_start_utc, day_end_utc),
-        ).fetchone()
-        max_row = connection.execute(
-            """
-            SELECT observed_at, value, unit
-            FROM observations
-            WHERE upper(sensor_id) = 'T1'
-              AND julianday(observed_at) >= julianday(?)
-              AND julianday(observed_at) < julianday(?)
-            ORDER BY value DESC, observed_at ASC
-            LIMIT 1
-            """,
-            (day_start_utc, day_end_utc),
-        ).fetchone()
+        for sid in sensor_ids:
+            row_min = connection.execute(
+                """
+                SELECT observed_at, value, unit
+                FROM observations
+                WHERE upper(sensor_id) = ?
+                  AND julianday(observed_at) >= julianday(?)
+                  AND julianday(observed_at) < julianday(?)
+                ORDER BY value ASC, observed_at ASC
+                LIMIT 1
+                """,
+                (sid.upper(), day_start_utc, day_end_utc),
+            ).fetchone()
+            if not row_min:
+                continue
+            row_max = connection.execute(
+                """
+                SELECT observed_at, value, unit
+                FROM observations
+                WHERE upper(sensor_id) = ?
+                  AND julianday(observed_at) >= julianday(?)
+                  AND julianday(observed_at) < julianday(?)
+                ORDER BY value DESC, observed_at ASC
+                LIMIT 1
+                """,
+                (sid.upper(), day_start_utc, day_end_utc),
+            ).fetchone()
+            resolved_id = sid.upper()
+            min_row = row_min
+            max_row = row_max
+            break
 
     def serialize(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
@@ -514,16 +525,21 @@ def get_today_temperature_extremes() -> dict[str, Any]:
         local_time = to_local_timestamp(row["observed_at"])
         return {
             "value": row["value"],
-            "unit": row["unit"] or "°C",
+            "unit": row["unit"] or default_unit,
             "time": local_time.strftime("%H:%M"),
             "datetime_local": local_time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
     return {
         "date": day_start_local.strftime("%Y-%m-%d"),
+        "sensor_id": resolved_id,
         "min": serialize(min_row),
         "max": serialize(max_row),
     }
+
+
+def get_today_temperature_extremes() -> dict[str, Any]:
+    return get_today_extremes(TEMPERATURE_SENSOR_IDS, default_unit="°C")
 
 
 def _period_stats_t1(start_utc: str, end_utc: str) -> dict[str, Any] | None:
@@ -551,6 +567,33 @@ def _period_stats_t1(start_utc: str, end_utc: str) -> dict[str, Any] | None:
         "avg": float(row["avg_v"]),
         "amp": float(row["max_v"]) - float(row["min_v"]),
     }
+
+
+def _period_hourly_series_t1(target_day: date) -> list[dict[str, Any]]:
+    """Среднее T1 по часам локального дня. 24 точки, пропуски — null."""
+    day_start_utc, day_end_utc = _local_day_bounds(target_day)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT observed_at, value
+            FROM observations
+            WHERE upper(sensor_id) = 'T1'
+              AND julianday(observed_at) >= julianday(?)
+              AND julianday(observed_at) < julianday(?)
+            ORDER BY observed_at ASC
+            """,
+            (day_start_utc, day_end_utc),
+        ).fetchall()
+
+    bucket: dict[int, list[float]] = {h: [] for h in range(24)}
+    for row in rows:
+        local_dt = to_local_timestamp(row["observed_at"])
+        bucket[local_dt.hour].append(float(row["value"]))
+
+    return [
+        {"hour": h, "value": round(sum(bucket[h]) / len(bucket[h]), 2) if bucket[h] else None}
+        for h in range(24)
+    ]
 
 
 def _period_day_night_stats_t1(target_day: date) -> dict[str, Any]:
@@ -627,6 +670,12 @@ def get_period_comparison() -> dict[str, Any]:
             }
         )
 
+    series = {
+        "today": _period_hourly_series_t1(today_local),
+        "yesterday": _period_hourly_series_t1(today_local - timedelta(days=1)),
+        "monthAgo": _period_hourly_series_t1(today_local - timedelta(days=30)),
+    }
+
     return {
         "today_date": today_local.isoformat(),
         "today": {
@@ -662,6 +711,7 @@ def get_period_comparison() -> dict[str, Any]:
             ],
         },
         "rows": rows,
+        "series": series,
     }
 
 

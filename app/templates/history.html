@@ -1,62 +1,52 @@
 {% extends "base.html" %}
-{% block title %}История | Метеостанция{% endblock %}
-{% block content %}
-<div class="page-header d-print-none">
-    <div class="container-xl">
-        <div class="row g-2 align-items-center">
-            <div class="col">
-                <div class="page-pretitle">Архив</div>
-                <h2 class="page-title">История за выбранный день</h2>
-                <div class="text-secondary mt-1">Колонки: дата, время, температура, влажность, давление, остальные данные.</div>
-            </div>
-            <div class="col-auto ms-auto d-print-none">
-                <form class="d-flex gap-2" method="get" action="/history">
-                    <input class="form-control" type="date" name="day" value="{{ selected_day }}">
-                    <button class="btn btn-primary" type="submit">Показать</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
+{% block title %}История | {{ app_title }}{% endblock %}
 
-<div class="page-body">
-    <div class="container-xl">
-        {% if items %}
-        <div class="card">
-            <div class="table-responsive">
-                <table class="table table-vcenter card-table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Дата</th>
-                            <th>Время</th>
-                            <th>Температура</th>
-                            <th>Влажность</th>
-                            <th>Давление</th>
-                            <th>Остальные данные</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in items %}
-                        <tr>
-                            <td>{{ item.date }}</td>
-                            <td>{{ item.time }}</td>
-                            <td>{{ item.temperature }}</td>
-                            <td>{{ item.humidity }}</td>
-                            <td>{{ item.pressure }}</td>
-                            <td class="history-other">{{ item.other_data }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        {% else %}
-        <div class="empty">
-            <div class="empty-img"><i class="ti ti-cloud-off fs-1 text-secondary"></i></div>
-            <p class="empty-title">За {{ selected_day }} данных нет</p>
-            <p class="empty-subtitle text-secondary">Как только станция пришлет показания в этот день, они появятся здесь.</p>
-        </div>
-        {% endif %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <div class="eyebrow">АРХИВ</div>
+      <h1 class="page-title">История за выбранный день</h1>
+      <div class="page-sub">Колонки: дата, время, температура, влажность, давление, остальные данные.</div>
     </div>
-</div>
+    <form class="page-header-right" method="get" action="/history">
+      <input class="input mono" type="date" name="day" value="{{ selected_day }}">
+      <button class="btn btn-primary" type="submit">Показать</button>
+    </form>
+  </header>
+
+  {% if items %}
+  <div class="card no-pad">
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Время</th>
+            <th>Температура</th>
+            <th>Влажность</th>
+            <th>Давление</th>
+            <th>Остальные данные</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td class="muted">{{ item.date }}</td>
+            <td class="mono">{{ item.time }}</td>
+            <td class="mono">{{ item.temperature }}</td>
+            <td class="mono">{{ item.humidity }}</td>
+            <td class="mono">{{ item.pressure }}</td>
+            <td class="muted small">{{ item.other_data }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="card empty-card">
+    <h2>За {{ selected_day }} данных нет</h2>
+    <div>Как только станция пришлёт показания за этот день, они появятся здесь.</div>
+  </div>
+  {% endif %}
 {% endblock %}

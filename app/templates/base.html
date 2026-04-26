@@ -11,9 +11,11 @@
             document.documentElement.setAttribute("data-bs-theme", theme);
         })();
     </script>
-    <link rel="stylesheet" href="/static/vendor/tabler/core/tabler.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/tabler/icons/tabler-icons.min.css">
-    <link rel="stylesheet" href="/static/tabler-custom.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
     {% if yandex_metrika_enabled %}
     <!-- Yandex.Metrika counter -->
     <script type="text/javascript">
@@ -33,84 +35,41 @@
     {% if yandex_metrika_enabled %}
     <noscript><div><img src="https://mc.yandex.ru/watch/{{ yandex_metrika_id }}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
     {% endif %}
-    <div class="page">
-        <header class="navbar navbar-expand-md d-print-none">
-            <div class="container-xl">
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar-menu" aria-controls="navbar-menu" aria-expanded="false" aria-label="Переключить навигацию">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <h1 class="navbar-brand navbar-brand-autodark pe-0 pe-md-3 mb-0">
-                    <a href="/">
-                        <span class="text-primary">{{ site_brand }}</span>
-                    </a>
-                </h1>
-                <div class="navbar-nav flex-row order-md-last align-items-center">
-                    <div class="nav-item">
-                        <button id="theme-toggle" class="btn btn-icon btn-ghost-secondary" type="button" aria-label="Переключить тему">
-                            <i class="ti ti-sun"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="collapse navbar-collapse" id="navbar-menu">
-                    <div class="d-flex flex-column flex-md-row flex-fill align-items-stretch align-items-md-center">
-                        <ul class="navbar-nav">
-                            <li class="nav-item {% if request.url.path == '/' %}active{% endif %}">
-                                <a class="nav-link" href="/">
-                                    <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-cloud"></i></span>
-                                    <span class="nav-link-title">Главная</span>
-                                </a>
-                            </li>
-                            <li class="nav-item {% if request.url.path.startswith('/charts') %}active{% endif %}">
-                                <a class="nav-link" href="/charts">
-                                    <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-chart-line"></i></span>
-                                    <span class="nav-link-title">Графики</span>
-                                </a>
-                            </li>
-                            <li class="nav-item {% if request.url.path.startswith('/history') %}active{% endif %}">
-                                <a class="nav-link" href="/history">
-                                    <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-history"></i></span>
-                                    <span class="nav-link-title">История</span>
-                                </a>
-                            </li>
-                            <li class="nav-item {% if request.url.path.startswith('/station') %}active{% endif %}">
-                                <a class="nav-link" href="/station">
-                                    <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-heartbeat"></i></span>
-                                    <span class="nav-link-title">Состояние станции</span>
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </header>
 
-        <div class="page-wrapper">
-            {% block content %}{% endblock %}
+    <div class="topbar">
+        <a href="/" class="brand"><span class="brand-dot"></span>{{ site_brand }}</a>
+        <nav class="nav">
+            <a class="nav-item {% if request.url.path == '/' %}active{% endif %}" href="/">Главная</a>
+            <a class="nav-item {% if request.url.path.startswith('/charts') %}active{% endif %}" href="/charts">Графики</a>
+            <a class="nav-item {% if request.url.path.startswith('/history') %}active{% endif %}" href="/history">История</a>
+            <a class="nav-item {% if request.url.path.startswith('/station') %}active{% endif %}" href="/station">Состояние станции</a>
+        </nav>
+        <div class="topbar-right">
+            <button id="theme-toggle" type="button" class="icon-btn" title="Переключить тему" aria-label="Переключить тему">
+                <i class="ti ti-sun"></i>
+            </button>
         </div>
     </div>
 
-    <script src="/static/vendor/tabler/core/tabler.min.js"></script>
+    <div class="dashboard">
+        {% block content %}{% endblock %}
+    </div>
+
     <script>
         (function () {
             const btn = document.getElementById("theme-toggle");
             if (!btn) return;
             const icon = btn.querySelector("i");
-
             const setTheme = (theme) => {
                 document.documentElement.setAttribute("data-bs-theme", theme);
                 localStorage.setItem("theme", theme);
-                if (icon) {
-                    icon.className = theme === "dark" ? "ti ti-moon" : "ti ti-sun";
-                }
+                if (icon) icon.className = theme === "dark" ? "ti ti-moon" : "ti ti-sun";
             };
-
             setTheme(localStorage.getItem("theme") || "light");
             btn.addEventListener("click", () => {
                 const current = document.documentElement.getAttribute("data-bs-theme") || "light";
                 setTheme(current === "dark" ? "light" : "dark");
-                if (window.dispatchEvent) {
-                    window.dispatchEvent(new CustomEvent("theme-changed"));
-                }
+                window.dispatchEvent(new CustomEvent("theme-changed"));
             });
         })();
     </script>

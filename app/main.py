@@ -13,6 +13,8 @@ from loguru import logger
 
 from .config import APP_TITLE, SITE_BRAND, WEATHER_TIMEZONE, YANDEX_METRIKA_ENABLED, YANDEX_METRIKA_ID
 from .db import (
+    HUMIDITY_SENSOR_IDS,
+    TEMPERATURE_SENSOR_IDS,
     get_anomaly_calendar,
     get_chart_series,
     get_comfort_risk,
@@ -21,6 +23,7 @@ from .db import (
     get_period_comparison,
     get_station_status,
     get_temperature_heatmap,
+    get_today_extremes,
     get_today_temperature_extremes,
     get_uptime_monitor,
     init_db,
@@ -75,9 +78,11 @@ async def log_requests(request: Request, call_next):
 def dashboard(request: Request) -> HTMLResponse:
     snapshot = get_latest_snapshot()
     uptime = get_uptime_monitor(24)
-    temp_extremes = get_today_temperature_extremes()
+    temp_extremes = get_today_extremes(TEMPERATURE_SENSOR_IDS, default_unit="°C")
+    humidity_extremes = get_today_extremes(HUMIDITY_SENSOR_IDS, default_unit="%")
     comfort = get_comfort_risk(snapshot)
     comparison = get_period_comparison()
+    chart_series = get_chart_series(1)
     return render_template(
         request,
         "index.html",
@@ -85,8 +90,10 @@ def dashboard(request: Request) -> HTMLResponse:
             "snapshot": snapshot,
             "uptime": uptime,
             "temp_extremes": temp_extremes,
+            "humidity_extremes": humidity_extremes,
             "comfort": comfort,
             "comparison": comparison,
+            "chart_series": chart_series,
         },
     )
 

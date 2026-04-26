@@ -225,16 +225,18 @@ Telegram:
 
 ## 6) Статические библиотеки фронтенда
 
-Чтобы не зависеть от внешних CDN, библиотеки сохранены локально:
-- `app/static/vendor/tabler/core/tabler.min.css`
-- `app/static/vendor/tabler/core/tabler.min.js`
-- `app/static/vendor/tabler/icons/tabler-icons.min.css`
-- `app/static/vendor/tabler/icons/fonts/*`
-- `app/static/vendor/chartjs/chart.umd.min.js`
+Дизайн-система собственная — токены и стили в `app/static/dashboard.css` (палитра `oklch`, светлая/тёмная темы, дашбордные карточки и сетки).
+
+Локально (без CDN):
+- `app/static/vendor/tabler/icons/tabler-icons.min.css` — только иконки (используются в кнопке темы)
+- `app/static/vendor/tabler/icons/fonts/*` — шрифты иконок
+- `app/static/vendor/chartjs/chart.umd.min.js` — графики на странице `/charts`
 - `app/static/vendor/chartjs/chartjs-adapter-date-fns.bundle.min.js`
 
-Проверенные актуальные версии на момент 2026-04-16:
-- `@tabler/core`: `1.4.0`
+Через CDN:
+- Inter и JetBrains Mono с `fonts.googleapis.com` (подключены в `app/templates/base.html`). При желании можно добавить локально в `app/static/vendor/fonts/` и заменить `<link>`.
+
+Проверенные актуальные версии на момент 2026-04-26:
 - `@tabler/icons-webfont`: `3.41.1`
 - `chart.js`: `4.5.1`
 - `chartjs-adapter-date-fns`: `3.0.0`
