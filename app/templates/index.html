@@ -11,14 +11,30 @@
   <header class="a-header">
     <div>
       <div class="eyebrow">{{ site_brand|upper }}</div>
-      <h1 class="a-title">Текущая погода</h1>
+      <h1 class="a-title">
+        {% if active_station %}{{ active_station.name }}{% else %}Текущая погода{% endif %}
+      </h1>
       {% if snapshot %}
       <div class="a-sub">
         Обновлено: <span class="dot dot-green"></span>{{ snapshot.received_ago }}
         <span class="muted">({{ snapshot.received_local }})</span>
+        {% if active_station %}<span class="muted"> · {{ active_station.sensor or '—' }} · {{ active_station.location or '—' }}</span>{% endif %}
       </div>
+      {% elif active_station %}
+      <div class="a-sub muted">Станция <span class="mono">{{ active_station.mac }}</span> зарегистрирована, но данных от неё пока нет.</div>
       {% else %}
-      <div class="a-sub muted">Данных пока нет. Отправьте первый POST на <span class="mono">/api/ingest</span>.</div>
+      <div class="a-sub muted">Зарегистрируйте станцию в <a href="/admin/stations">/admin/stations</a> или отправьте первый POST на <span class="mono">/api/ingest</span>.</div>
+      {% endif %}
+      {% if stations|length > 1 %}
+      <div class="station-chips">
+        {% for s in stations %}
+          <a class="station-chip {% if active_station and active_station.mac == s.mac %}active{% endif %}" href="?station={{ s.mac }}">
+            <span class="station-chip-dot"></span>
+            <span class="station-chip-name">{{ s.name }}</span>
+            <span class="station-chip-mac mono muted">{{ s.mac }}</span>
+          </a>
+        {% endfor %}
+      </div>
       {% endif %}
     </div>
     <div class="a-header-right">

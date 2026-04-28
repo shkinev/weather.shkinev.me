@@ -307,7 +307,30 @@ select.input {
 .a-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; gap: 16px; flex-wrap: wrap; }
 .a-title { font-size: 22px; font-weight: 600; margin: 2px 0 4px; letter-spacing: -0.3px; color: var(--ink); }
 .a-sub { color: var(--ink-2); font-size: 12px; }
+.a-sub a { color: var(--accent); }
 .a-header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* Station selector chips */
+.station-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.station-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  text-decoration: none;
+  color: var(--ink-2);
+  font-size: 12px;
+  transition: border-color 120ms;
+}
+.station-chip:hover { border-color: var(--border-strong); }
+.station-chip.active { border-color: var(--accent); color: var(--ink); background: color-mix(in oklch, var(--accent) 8%, var(--surface)); }
+.station-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-2); }
+.station-chip.active .station-chip-dot { background: var(--accent); }
+.station-chip-name { font-weight: 500; }
+.station-chip-mac { font-size: 10px; }
 
 /* ---------- Grid ---------- */
 .a-grid {

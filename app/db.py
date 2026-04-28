@@ -200,16 +200,31 @@ def save_payload(
     }
 
 
-def get_latest_snapshot(conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+def get_latest_snapshot(
+    conn: sqlite3.Connection | None = None,
+    station_mac: str | None = None,
+) -> dict[str, Any] | None:
     with use_connection(conn) as connection:
-        batch = connection.execute(
-            """
-            SELECT id, device_mac, received_at
-            FROM ingest_batches
-            ORDER BY received_at DESC, id DESC
-            LIMIT 1
-            """
-        ).fetchone()
+        if station_mac:
+            batch = connection.execute(
+                """
+                SELECT id, device_mac, received_at
+                FROM ingest_batches
+                WHERE device_mac = ?
+                ORDER BY received_at DESC, id DESC
+                LIMIT 1
+                """,
+                (station_mac,),
+            ).fetchone()
+        else:
+            batch = connection.execute(
+                """
+                SELECT id, device_mac, received_at
+                FROM ingest_batches
+                ORDER BY received_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
         if not batch:
             return None
 

@@ -18,7 +18,6 @@ from loguru import logger
 from . import settings, stations as stations_repo
 from .auth import admin_enabled, require_admin
 from .config import (
-    INGEST_ALLOWED_MACS,
     INGEST_MAX_BODY_BYTES,
     INGEST_MAX_DEVICES,
     INGEST_MAX_SENSORS_PER_DEVICE,
@@ -113,8 +112,22 @@ async def log_requests(request: Request, call_next):
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, conn: sqlite3.Connection = Depends(db_dependency)) -> HTMLResponse:
-    snapshot = get_latest_snapshot(conn=conn)
+def dashboard(
+    request: Request,
+    station: str | None = None,
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> HTMLResponse:
+    enabled_stations = stations_repo.list_enabled(conn=conn)
+    active_station: dict[str, Any] | None = None
+    if station:
+        # Ищем по mac среди включённых.
+        active_station = next((s for s in enabled_stations if s["mac"] == station), None)
+    if active_station is None and enabled_stations:
+        # Primary first, иначе первая enabled.
+        active_station = next((s for s in enabled_stations if s.get("is_primary")), enabled_stations[0])
+    active_mac = active_station["mac"] if active_station else None
+
+    snapshot = get_latest_snapshot(conn=conn, station_mac=active_mac)
     uptime = get_uptime_monitor(24, conn=conn)
     temp_extremes = get_today_extremes(TEMPERATURE_SENSOR_IDS, default_unit="°C", conn=conn)
     humidity_extremes = get_today_extremes(HUMIDITY_SENSOR_IDS, default_unit="%", conn=conn)
@@ -132,6 +145,8 @@ def dashboard(request: Request, conn: sqlite3.Connection = Depends(db_dependency
             "comfort": comfort,
             "comparison": comparison,
             "chart_series": chart_series,
+            "stations": enabled_stations,
+            "active_station": active_station,
         },
     )
 
@@ -187,20 +202,36 @@ async def ingest(request: Request, conn: sqlite3.Connection = Depends(db_depende
     if len(devices) > INGEST_MAX_DEVICES:
         raise HTTPException(status_code=400, detail=f"Too many devices in payload (max {INGEST_MAX_DEVICES}).")
 
-    if INGEST_ALLOWED_MACS:
-        allowed = {m.lower() for m in INGEST_ALLOWED_MACS}
-        for device in devices:
-            mac = str(device.get("mac") or "").strip().lower()
-            if mac not in allowed:
-                logger.warning("Ingest rejected: mac {!r} not in whitelist", mac)
-                raise HTTPException(status_code=403, detail="Device mac is not whitelisted.")
-
+    auto_register = settings.get_bool("AUTO_REGISTER_STATIONS", conn=conn)
     for device in devices:
         sensors = device.get("sensors") or []
         if not isinstance(sensors, list):
             raise HTTPException(status_code=400, detail="device.sensors must be an array.")
         if len(sensors) > INGEST_MAX_SENSORS_PER_DEVICE:
             raise HTTPException(status_code=400, detail=f"Too many sensors in one device (max {INGEST_MAX_SENSORS_PER_DEVICE}).")
+
+        mac = str(device.get("mac") or "").strip()
+        if not mac:
+            raise HTTPException(status_code=400, detail="device.mac is required.")
+
+        station = stations_repo.get_by_mac(mac, conn=conn)
+        if station is None:
+            if auto_register:
+                station = stations_repo.upsert_unknown(mac, conn=conn)
+                # Коммитим явно: HTTPException ниже отменит коммит из
+                # db_dependency, а нам нужно, чтобы факт регистрации mac
+                # остался в БД и владелец увидел его в /admin/stations.
+                conn.commit()
+                logger.info("Auto-registered new station {} (disabled until owner enables it)", mac)
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Station {mac} registered but disabled. Enable it in /admin/stations.",
+                )
+            logger.warning("Ingest rejected: unknown mac {!r}", mac)
+            raise HTTPException(status_code=403, detail=f"Station {mac} is not registered.")
+        if not station.get("enabled"):
+            logger.warning("Ingest rejected: mac {!r} is disabled", mac)
+            raise HTTPException(status_code=403, detail=f"Station {mac} is disabled.")
 
     result = save_payload(payload, conn=conn)
     return {"status": "ok", **result}
