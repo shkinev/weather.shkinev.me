@@ -1,0 +1,46 @@
+{% extends "admin/_layout.html" %}
+{% block admin_title %}Настройки{% endblock %}
+{% block admin_heading %}Настройки{% endblock %}
+{% block admin_sub %}Эти значения хранятся в БД (таблица <span class="mono">app_settings</span>) и применяются сразу после сохранения. Перезапуск не требуется.{% endblock %}
+
+{% block admin_content %}
+<form method="post" action="/admin/settings" class="admin-form">
+  {% for section in sections %}
+    <div class="card mb-16">
+      <div class="card-head">
+        <div class="card-title">{{ section }}</div>
+      </div>
+      <div class="form-grid">
+        {% for spec in schema if spec.section == section %}
+          <div class="form-row">
+            <label for="f-{{ spec.key }}" class="form-label">
+              <span class="form-label-text">{{ spec.label }}</span>
+              <span class="mono small muted">{{ spec.key }}</span>
+            </label>
+            <div class="form-input-wrap">
+              {% if spec.type == "bool" %}
+                <label class="switch">
+                  <input id="f-{{ spec.key }}" type="checkbox" name="{{ spec.key }}" value="1"
+                    {% if values[spec.key] in ("1","true","yes","on","y","да") %}checked{% endif %}>
+                  <span class="switch-track"><span class="switch-thumb"></span></span>
+                </label>
+              {% else %}
+                <input id="f-{{ spec.key }}" class="input mono"
+                       type="{{ 'number' if spec.type == 'int' else 'text' }}"
+                       name="{{ spec.key }}"
+                       value="{{ values[spec.key] }}">
+              {% endif %}
+              {% if spec.help %}<div class="form-help">{{ spec.help }}</div>{% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+    <a href="/admin/settings" class="btn">Отмена</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,117 @@
+{% extends "admin/_layout.html" %}
+{% block admin_title %}Станции{% endblock %}
+{% block admin_heading %}Станции{% endblock %}
+{% block admin_sub %}Только включённые станции принимают ingest. Чтобы автоматически создавать запись для нового mac (disabled), включите <span class="mono">AUTO_REGISTER_STATIONS</span> в настройках.{% endblock %}
+
+{% block admin_content %}
+{# ---------- Add form ---------- #}
+<div class="card mb-16">
+  <div class="card-head">
+    <div class="card-title">Добавить станцию</div>
+  </div>
+  <form method="post" action="/admin/stations" class="form-grid">
+    <input type="hidden" name="action" value="create">
+    <div class="form-row">
+      <label class="form-label" for="add-mac"><span class="form-label-text">Mac</span></label>
+      <div class="form-input-wrap">
+        <input id="add-mac" class="input mono" name="mac" required placeholder="IQWS-XXXXXXXXXXXX">
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="form-label" for="add-name"><span class="form-label-text">Имя</span></label>
+      <div class="form-input-wrap">
+        <input id="add-name" class="input" name="name" required placeholder="Локальная">
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="form-label" for="add-sensor"><span class="form-label-text">Сенсор-модель</span></label>
+      <div class="form-input-wrap">
+        <input id="add-sensor" class="input" name="sensor" placeholder="BME280">
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="form-label" for="add-location"><span class="form-label-text">Локация</span></label>
+      <div class="form-input-wrap">
+        <input id="add-location" class="input" name="location" placeholder="Дом, западная стена">
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="form-label"><span class="form-label-text">Включена</span></label>
+      <div class="form-input-wrap">
+        <label class="switch">
+          <input type="checkbox" name="enabled" value="1" checked>
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Добавить</button>
+    </div>
+  </form>
+</div>
+
+{# ---------- List ---------- #}
+{% if stations %}
+<div class="card no-pad">
+  <div class="table-wrap">
+    <table class="data-table admin-stations-table">
+      <thead>
+        <tr>
+          <th>Mac</th>
+          <th>Имя</th>
+          <th>Сенсор / локация</th>
+          <th>Состояние</th>
+          <th>Primary</th>
+          <th>Создана</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in stations %}
+        <tr {% if not s.enabled %}class="row-disabled"{% endif %}>
+          <td class="mono">{{ s.mac }}</td>
+          <td>
+            <form method="post" action="/admin/stations" class="inline-form">
+              <input type="hidden" name="action" value="update">
+              <input type="hidden" name="id" value="{{ s.id }}">
+              <input class="input" name="name" value="{{ s.name }}" required>
+          </td>
+          <td>
+              <input class="input" name="sensor" value="{{ s.sensor }}" placeholder="модель">
+              <input class="input" name="location" value="{{ s.location }}" placeholder="локация">
+          </td>
+          <td>
+              <label class="switch">
+                <input type="checkbox" name="enabled" value="1" {% if s.enabled %}checked{% endif %}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+          </td>
+          <td>
+              <label class="switch">
+                <input type="checkbox" name="is_primary" value="1" {% if s.is_primary %}checked{% endif %}>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+          </td>
+          <td class="muted small mono">{{ s.created_at[:10] }}</td>
+          <td class="row-actions">
+              <button type="submit" class="btn btn-primary">Сохранить</button>
+            </form>
+            <form method="post" action="/admin/stations" class="inline-form" onsubmit="return confirm('Удалить станцию {{ s.mac }}?');">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="id" value="{{ s.id }}">
+              <button type="submit" class="btn btn-danger">Удалить</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card empty-card">
+  <h2>Станций пока нет</h2>
+  <div>Добавьте первую станцию через форму выше.</div>
+</div>
+{% endif %}
+{% endblock %}

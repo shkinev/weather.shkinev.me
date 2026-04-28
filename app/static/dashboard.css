@@ -588,3 +588,51 @@ select.input {
 .alert-good { background: color-mix(in oklch, var(--tone-good) 14%, var(--surface)); color: var(--tone-good); border: 1px solid color-mix(in oklch, var(--tone-good) 25%, transparent); border-radius: var(--r-sm); padding: 10px 12px; font-size: 12px; }
 .alert-warn { background: color-mix(in oklch, var(--tone-warn) 14%, var(--surface)); color: var(--tone-warn); border: 1px solid color-mix(in oklch, var(--tone-warn) 25%, transparent); border-radius: var(--r-sm); padding: 10px 12px; font-size: 12px; }
 .alert-bad  { background: color-mix(in oklch, var(--tone-bad) 14%, var(--surface));  color: var(--tone-bad);  border: 1px solid color-mix(in oklch, var(--tone-bad) 25%, transparent);  border-radius: var(--r-sm); padding: 10px 12px; font-size: 12px; }
+
+.mb-16 { margin-bottom: 16px; }
+
+/* ---------- Admin pages ---------- */
+.btn-danger {
+  background: color-mix(in oklch, var(--tone-bad) 14%, var(--surface));
+  color: var(--tone-bad);
+  border-color: color-mix(in oklch, var(--tone-bad) 30%, transparent);
+}
+.btn-danger:hover { border-color: var(--tone-bad); }
+
+.admin-form .card { padding: 16px 18px; }
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.form-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.form-row:first-child { border-top: 0; }
+@media (max-width: 720px) {
+  .form-row { grid-template-columns: 1fr; gap: 6px; }
+}
+.form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+}
+.form-label-text { color: var(--ink); font-size: 13px; font-weight: 500; }
+.form-input-wrap { display: flex; flex-direction: column; gap: 6px; }
+.form-input-wrap .input { width: 100%; max-width: 420px; }
+.form-help { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.form-actions { display: flex; gap: 10px; padding-top: 4px; }
+
+/* Stations table */
+.admin-stations-table .input { font-size: 12px; height: 28px; padding: 4px 8px; max-width: none; width: auto; min-width: 110px; }
+.admin-stations-table td { vertical-align: middle; }
+.admin-stations-table .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.admin-stations-table .row-actions .btn { padding: 5px 10px; height: 28px; font-size: 11px; }
+.admin-stations-table tr.row-disabled { opacity: 0.55; }
+.inline-form { display: inline-flex; gap: 4px; flex-wrap: wrap; }

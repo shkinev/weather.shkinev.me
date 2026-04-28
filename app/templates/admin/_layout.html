@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{% block admin_title %}Админка{% endblock %} | {{ app_title }}{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <div class="eyebrow">АДМИНИСТРИРОВАНИЕ</div>
+      <h1 class="page-title">{% block admin_heading %}Админка{% endblock %}</h1>
+      <div class="page-sub">{% block admin_sub %}{% endblock %}</div>
+    </div>
+    <div class="page-header-right">
+      <div class="seg">
+        <a class="seg-btn {% if request.url.path.startswith('/admin/settings') %}active{% endif %}" href="/admin/settings">Настройки</a>
+        <a class="seg-btn {% if request.url.path.startswith('/admin/stations') %}active{% endif %}" href="/admin/stations">Станции</a>
+      </div>
+    </div>
+  </header>
+
+  {% if flash %}
+    <div class="alert-{{ flash.tone }} mb-16">{{ flash.text }}</div>
+  {% endif %}
+
+  {% block admin_content %}{% endblock %}
+{% endblock %}

@@ -9,13 +9,13 @@ import hmac
 import json
 import sqlite3
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
-from . import settings
+from . import settings, stations as stations_repo
 from .auth import admin_enabled, require_admin
 from .config import (
     INGEST_ALLOWED_MACS,
@@ -76,6 +76,7 @@ def _site_globals() -> dict[str, Any]:
         "site_brand": settings.get_string("SITE_BRAND"),
         "yandex_metrika_id": yandex_id,
         "yandex_metrika_enabled": bool(yandex_id),
+        "admin_enabled": admin_enabled(),
     }
 
 
@@ -215,6 +216,122 @@ def api_status() -> dict[str, Any]:
 @app.get("/admin/whoami")
 def admin_whoami(user: str = Depends(require_admin)) -> dict[str, Any]:
     return {"user": user, "admin_enabled": admin_enabled()}
+
+
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
+def admin_root(_: str = Depends(require_admin)) -> RedirectResponse:
+    return RedirectResponse(url="/admin/settings", status_code=302)
+
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+def admin_settings_get(
+    request: Request,
+    saved: int = 0,
+    _: str = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> HTMLResponse:
+    flash = {"tone": "good", "text": "Настройки сохранены."} if saved else None
+    return render_template(
+        request,
+        "admin/settings.html",
+        {
+            "schema": list(settings.SETTINGS_SCHEMA),
+            "sections": settings.sections(),
+            "values": settings.all_values(conn=conn),
+            "flash": flash,
+        },
+    )
+
+
+@app.post("/admin/settings", response_class=HTMLResponse)
+async def admin_settings_post(
+    request: Request,
+    _: str = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> RedirectResponse:
+    form = await request.form()
+    submitted: dict[str, str] = {}
+    for spec in settings.SETTINGS_SCHEMA:
+        if spec.type == "bool":
+            submitted[spec.key] = "1" if form.get(spec.key) else "0"
+        else:
+            value = str(form.get(spec.key, "")).strip()
+            submitted[spec.key] = value
+    settings.set_many(submitted, conn=conn)
+    return RedirectResponse(url="/admin/settings?saved=1", status_code=303)
+
+
+@app.get("/admin/stations", response_class=HTMLResponse)
+def admin_stations_get(
+    request: Request,
+    saved: str | None = None,
+    _: str = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> HTMLResponse:
+    flash = None
+    if saved == "created":
+        flash = {"tone": "good", "text": "Станция добавлена."}
+    elif saved == "updated":
+        flash = {"tone": "good", "text": "Станция обновлена."}
+    elif saved == "deleted":
+        flash = {"tone": "good", "text": "Станция удалена."}
+    elif saved == "exists":
+        flash = {"tone": "warn", "text": "Станция с таким mac уже есть."}
+    elif saved == "error":
+        flash = {"tone": "bad", "text": "Не удалось сохранить — проверьте поля."}
+    return render_template(
+        request,
+        "admin/stations.html",
+        {"stations": stations_repo.list_stations(conn=conn), "flash": flash},
+    )
+
+
+@app.post("/admin/stations", response_class=HTMLResponse)
+async def admin_stations_post(
+    request: Request,
+    _: str = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> RedirectResponse:
+    form = await request.form()
+    action = str(form.get("action") or "").strip()
+    try:
+        if action == "create":
+            mac = str(form.get("mac") or "").strip()
+            existing = stations_repo.get_by_mac(mac, conn=conn) if mac else None
+            if existing:
+                return RedirectResponse(url="/admin/stations?saved=exists", status_code=303)
+            stations_repo.create(
+                mac=mac,
+                name=str(form.get("name") or "").strip(),
+                sensor=str(form.get("sensor") or "").strip(),
+                location=str(form.get("location") or "").strip(),
+                enabled=bool(form.get("enabled")),
+                conn=conn,
+            )
+            return RedirectResponse(url="/admin/stations?saved=created", status_code=303)
+
+        if action == "update":
+            station_id = int(str(form.get("id") or "0"))
+            stations_repo.update(
+                station_id,
+                name=str(form.get("name") or "").strip(),
+                sensor=str(form.get("sensor") or "").strip(),
+                location=str(form.get("location") or "").strip(),
+                enabled=bool(form.get("enabled")),
+                is_primary=bool(form.get("is_primary")),
+                conn=conn,
+            )
+            return RedirectResponse(url="/admin/stations?saved=updated", status_code=303)
+
+        if action == "delete":
+            station_id = int(str(form.get("id") or "0"))
+            stations_repo.delete(station_id, conn=conn)
+            return RedirectResponse(url="/admin/stations?saved=deleted", status_code=303)
+    except (ValueError, TypeError) as err:
+        logger.warning("Admin stations form error: {}", err)
+        return RedirectResponse(url="/admin/stations?saved=error", status_code=303)
+
+    return RedirectResponse(url="/admin/stations", status_code=303)
 
 
 @app.get("/api/current", response_model=CurrentResponse)
