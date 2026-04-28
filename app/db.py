@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .cache import cached, invalidate as cache_invalidate
 from .config import DATABASE_PATH, WEATHER_PLACE_NAME, WEATHER_TIMEZONE
+from .migrations import run_migrations
 from .sensor_map import PRIMARY_SENSOR_IDS, sensor_label, sensor_unit
 
 try:
@@ -38,41 +40,45 @@ def get_connection() -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+@contextmanager
+def use_connection(existing: sqlite3.Connection | None) -> Iterator[sqlite3.Connection]:
+    """Использует переданный connection или открывает временный.
+
+    Если connection передан — caller отвечает за commit/close, мы только yield-им.
+    Если нет — открываем свой через get_connection() (с авто-commit/close).
+    """
+    if existing is not None:
+        yield existing
+        return
+    with get_connection() as connection:
+        yield connection
+
+
+def db_dependency() -> Iterator[sqlite3.Connection]:
+    """FastAPI dependency: один connection на запрос.
+
+    `check_same_thread=False` нужен, потому что sync-зависимость и
+    async-эндпоинт (`/api/ingest`) могут оказаться в разных потоках
+    (FastAPI запускает sync dep в threadpool, а async handler — в event
+    loop). Конкурентного доступа к connection при этом нет: один conn
+    живёт ровно один HTTP-запрос.
+    """
+    connection = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+    connection.row_factory = dict_factory
+    connection.execute("PRAGMA foreign_keys = ON")
+    try:
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def init_db(db_path: Path | None = None) -> None:
     target = db_path or DATABASE_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(target)
     try:
-        connection.executescript(
-            """
-            PRAGMA journal_mode = WAL;
-
-            CREATE TABLE IF NOT EXISTS ingest_batches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_mac TEXT NOT NULL,
-                received_at TEXT NOT NULL,
-                payload_json TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS observations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                batch_id INTEGER NOT NULL REFERENCES ingest_batches(id) ON DELETE CASCADE,
-                device_mac TEXT NOT NULL,
-                observed_at TEXT NOT NULL,
-                sensor_id TEXT NOT NULL,
-                sensor_name TEXT NOT NULL,
-                value REAL NOT NULL,
-                unit TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_observations_sensor_time
-                ON observations(sensor_id, observed_at DESC);
-
-            CREATE INDEX IF NOT EXISTS idx_observations_device_time
-                ON observations(device_mac, observed_at DESC);
-            """
-        )
-        connection.commit()
+        run_migrations(connection)
     finally:
         connection.close()
 
@@ -131,13 +137,17 @@ def freshness_emoji(value: str, now: datetime | None = None) -> str:
     return "🔴"
 
 
-def save_payload(payload: dict[str, Any], received_at: datetime | None = None) -> dict[str, Any]:
+def save_payload(
+    payload: dict[str, Any],
+    received_at: datetime | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
     timestamp = (received_at or datetime.now(UTC)).replace(microsecond=0)
     devices = payload.get("devices") or []
     inserted_batches = 0
     inserted_rows = 0
 
-    with get_connection() as connection:
+    with use_connection(conn) as connection:
         for device in devices:
             mac = str(device.get("mac") or "unknown")
             sensors = device.get("sensors") or []
@@ -181,6 +191,8 @@ def save_payload(payload: dict[str, Any], received_at: datetime | None = None) -
                 )
                 inserted_rows += 1
 
+    cache_invalidate()
+
     return {
         "received_at": timestamp.isoformat(),
         "devices": inserted_batches,
@@ -188,8 +200,8 @@ def save_payload(payload: dict[str, Any], received_at: datetime | None = None) -
     }
 
 
-def get_latest_snapshot() -> dict[str, Any] | None:
-    with get_connection() as connection:
+def get_latest_snapshot(conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+    with use_connection(conn) as connection:
         batch = connection.execute(
             """
             SELECT id, device_mac, received_at
@@ -252,8 +264,11 @@ def _reading_value(snapshot: dict[str, Any] | None, ids: tuple[str, ...]) -> flo
     return None
 
 
-def get_comfort_risk(snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
-    current = snapshot or get_latest_snapshot()
+def get_comfort_risk(
+    snapshot: dict[str, Any] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    current = snapshot or get_latest_snapshot(conn=conn)
     if not current:
         return {
             "level": "risk",
@@ -324,7 +339,11 @@ def get_comfort_risk(snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
-def get_chart_series(days: int | None = None, hours: int | None = None) -> dict[str, Any]:
+def get_chart_series(
+    days: int | None = None,
+    hours: int | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
     """Серии измерений за последние N часов или дней.
 
     Совместимо с прежней сигнатурой: вызов get_chart_series(1) — 1 день.
@@ -338,7 +357,7 @@ def get_chart_series(days: int | None = None, hours: int | None = None) -> dict[
         hours_eff = (days or 0) * 24
     hours_eff = max(1, min(hours_eff, 90 * 24))
 
-    with get_connection() as connection:
+    with use_connection(conn) as connection:
         rows = connection.execute(
             """
             SELECT upper(sensor_id) AS sensor_id, sensor_name, observed_at, value, unit
@@ -370,8 +389,8 @@ def _value_by_ids(reading_lookup: dict[str, dict[str, Any]], ids: tuple[str, ...
     return "—"
 
 
-def get_history_for_date(target_date: str) -> list[dict[str, Any]]:
-    with get_connection() as connection:
+def get_history_for_date(target_date: str, conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+    with use_connection(conn) as connection:
         rows = connection.execute(
             """
             SELECT
@@ -438,12 +457,12 @@ def get_history_for_date(target_date: str) -> list[dict[str, Any]]:
     return result
 
 
-def get_uptime_monitor(hours: int = 24) -> dict[str, Any]:
+def get_uptime_monitor(hours: int = 24, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     period = max(6, min(hours, 168))
     now_utc = datetime.now(UTC)
     start_utc = now_utc - timedelta(hours=period)
 
-    with get_connection() as connection:
+    with use_connection(conn) as connection:
         rows = connection.execute(
             """
             SELECT received_at
@@ -487,7 +506,11 @@ def get_uptime_monitor(hours: int = 24) -> dict[str, Any]:
     }
 
 
-def get_today_extremes(sensor_ids: tuple[str, ...], default_unit: str = "") -> dict[str, Any]:
+def get_today_extremes(
+    sensor_ids: tuple[str, ...],
+    default_unit: str = "",
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
     """Min/max за сегодня по первому sensor_id из списка, по которому есть данные."""
     now_local = datetime.now(LOCAL_TZ)
     day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -498,7 +521,7 @@ def get_today_extremes(sensor_ids: tuple[str, ...], default_unit: str = "") -> d
     resolved_id: str | None = None
     min_row = None
     max_row = None
-    with get_connection() as connection:
+    with use_connection(conn) as connection:
         for sid in sensor_ids:
             row_min = connection.execute(
                 """
@@ -550,12 +573,16 @@ def get_today_extremes(sensor_ids: tuple[str, ...], default_unit: str = "") -> d
     }
 
 
-def get_today_temperature_extremes() -> dict[str, Any]:
-    return get_today_extremes(TEMPERATURE_SENSOR_IDS, default_unit="°C")
+def get_today_temperature_extremes(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    return get_today_extremes(TEMPERATURE_SENSOR_IDS, default_unit="°C", conn=conn)
 
 
-def _period_stats_t1(start_utc: str, end_utc: str) -> dict[str, Any] | None:
-    with get_connection() as connection:
+def _period_stats_t1(
+    start_utc: str,
+    end_utc: str,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
+    with use_connection(conn) as connection:
         row = connection.execute(
             """
             SELECT
@@ -581,10 +608,58 @@ def _period_stats_t1(start_utc: str, end_utc: str) -> dict[str, Any] | None:
     }
 
 
-def _period_hourly_series_t1(target_day: date) -> list[dict[str, Any]]:
+def _bucket_hourly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    bucket: dict[int, list[float]] = {h: [] for h in range(24)}
+    for row in rows:
+        local_dt = to_local_timestamp(row["observed_at"])
+        bucket[local_dt.hour].append(float(row["value"]))
+    return [
+        {"hour": h, "value": round(sum(bucket[h]) / len(bucket[h]), 2) if bucket[h] else None}
+        for h in range(24)
+    ]
+
+
+def _period_hourly_series_t1_batch(
+    target_days: list[date],
+    connection: sqlite3.Connection,
+) -> dict[str, list[dict[str, Any]]]:
+    """Среднее T1 по часам локального дня для нескольких дней одним SQL.
+
+    UNION ALL даёт оптимизатору SQLite три узких индексных диапазона по
+    (sensor_id, observed_at) — это лучше, чем один range-scan между min(start)
+    и max(end), особенно когда между датами большой разрыв (год).
+    """
+    if not target_days:
+        return {}
+
+    selects = []
+    params: list[Any] = []
+    for day in target_days:
+        s, e = _local_day_bounds(day)
+        selects.append(
+            "SELECT ? AS bucket, observed_at, value FROM observations "
+            "WHERE upper(sensor_id) = 'T1' "
+            "AND julianday(observed_at) >= julianday(?) "
+            "AND julianday(observed_at) < julianday(?)"
+        )
+        params.extend([day.isoformat(), s, e])
+    sql = " UNION ALL ".join(selects) + " ORDER BY observed_at ASC"
+    rows = connection.execute(sql, params).fetchall()
+
+    grouped: dict[str, list[dict[str, Any]]] = {d.isoformat(): [] for d in target_days}
+    for row in rows:
+        grouped[row["bucket"]].append(row)
+
+    return {key: _bucket_hourly(rows) for key, rows in grouped.items()}
+
+
+def _period_hourly_series_t1(
+    target_day: date,
+    conn: sqlite3.Connection | None = None,
+) -> list[dict[str, Any]]:
     """Среднее T1 по часам локального дня. 24 точки, пропуски — null."""
     day_start_utc, day_end_utc = _local_day_bounds(target_day)
-    with get_connection() as connection:
+    with use_connection(conn) as connection:
         rows = connection.execute(
             """
             SELECT observed_at, value
@@ -608,9 +683,12 @@ def _period_hourly_series_t1(target_day: date) -> list[dict[str, Any]]:
     ]
 
 
-def _period_day_night_stats_t1(target_day: date) -> dict[str, Any]:
+def _period_day_night_stats_t1(
+    target_day: date,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
     day_start_utc, day_end_utc = _local_day_bounds(target_day)
-    with get_connection() as connection:
+    with use_connection(conn) as connection:
         rows = connection.execute(
             """
             SELECT observed_at, value
@@ -652,7 +730,13 @@ def _period_day_night_stats_t1(target_day: date) -> dict[str, Any]:
     }
 
 
-def get_period_comparison() -> dict[str, Any]:
+@cached(ttl_seconds=300)
+def get_period_comparison(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    with use_connection(conn) as connection:
+        return _get_period_comparison_impl(connection)
+
+
+def _get_period_comparison_impl(connection: sqlite3.Connection) -> dict[str, Any]:
     today_local = datetime.now(LOCAL_TZ).date()
     periods = [
         ("Вчера", today_local - timedelta(days=1)),
@@ -660,11 +744,11 @@ def get_period_comparison() -> dict[str, Any]:
         ("Год назад", today_local - timedelta(days=365)),
     ]
 
-    today_stats = _period_day_night_stats_t1(today_local)
+    today_stats = _period_day_night_stats_t1(today_local, conn=connection)
 
     rows = []
     for label, day in periods:
-        stats = _period_day_night_stats_t1(day)
+        stats = _period_day_night_stats_t1(day, conn=connection)
         delta_day = None
         delta_night = None
         if today_stats["day_avg"] is not None and stats["day_avg"] is not None:
@@ -682,10 +766,13 @@ def get_period_comparison() -> dict[str, Any]:
             }
         )
 
+    yesterday = today_local - timedelta(days=1)
+    month_ago = today_local - timedelta(days=30)
+    batch = _period_hourly_series_t1_batch([today_local, yesterday, month_ago], connection)
     series = {
-        "today": _period_hourly_series_t1(today_local),
-        "yesterday": _period_hourly_series_t1(today_local - timedelta(days=1)),
-        "monthAgo": _period_hourly_series_t1(today_local - timedelta(days=30)),
+        "today": batch[today_local.isoformat()],
+        "yesterday": batch[yesterday.isoformat()],
+        "monthAgo": batch[month_ago.isoformat()],
     }
 
     return {
@@ -727,13 +814,14 @@ def get_period_comparison() -> dict[str, Any]:
     }
 
 
-def get_temperature_heatmap(days: int = 30) -> dict[str, Any]:
+@cached(ttl_seconds=300)
+def get_temperature_heatmap(days: int = 30, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     period = max(7, min(days, 90))
     today_local = datetime.now(LOCAL_TZ).date()
     start_day = today_local - timedelta(days=period - 1)
     start_utc, _ = _local_day_bounds(start_day)
 
-    with get_connection() as connection:
+    with use_connection(conn) as connection:
         rows = connection.execute(
             """
             SELECT observed_at, value
@@ -772,7 +860,8 @@ def get_temperature_heatmap(days: int = 30) -> dict[str, Any]:
     }
 
 
-def get_anomaly_calendar(month: str | None = None) -> dict[str, Any]:
+@cached(ttl_seconds=300)
+def get_anomaly_calendar(month: str | None = None, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     now_local = datetime.now(LOCAL_TZ)
     if month:
         try:
@@ -790,12 +879,12 @@ def get_anomaly_calendar(month: str | None = None) -> dict[str, Any]:
     days_count = (next_month.date() - month_start.date()).days
     days: list[dict[str, Any]] = []
 
-    for idx in range(days_count):
-        day = month_start.date() + timedelta(days=idx)
-        s, e = _local_day_bounds(day)
-        stats = _period_stats_t1(s, e)
+    with use_connection(conn) as connection:
+        for idx in range(days_count):
+            day = month_start.date() + timedelta(days=idx)
+            s, e = _local_day_bounds(day)
+            stats = _period_stats_t1(s, e, conn=connection)
 
-        with get_connection() as connection:
             packets = connection.execute(
                 """
                 SELECT received_at
@@ -807,39 +896,39 @@ def get_anomaly_calendar(month: str | None = None) -> dict[str, Any]:
                 (s, e),
             ).fetchall()
 
-        gaps = 0
-        prev_dt: datetime | None = None
-        for row in packets:
-            dt = parse_timestamp(row["received_at"])
-            if prev_dt and (dt - prev_dt).total_seconds() > 30 * 60:
-                gaps += 1
-            prev_dt = dt
+            gaps = 0
+            prev_dt: datetime | None = None
+            for row in packets:
+                dt = parse_timestamp(row["received_at"])
+                if prev_dt and (dt - prev_dt).total_seconds() > 30 * 60:
+                    gaps += 1
+                prev_dt = dt
 
-        level = "ok"
-        reasons: list[str] = []
-        if stats:
-            if stats["min"] < -25 or stats["max"] > 35:
+            level = "ok"
+            reasons: list[str] = []
+            if stats:
+                if stats["min"] < -25 or stats["max"] > 35:
+                    level = "high"
+                    reasons.append("Экстремальная температура")
+                elif stats["amp"] > 15:
+                    level = "medium"
+                    reasons.append("Резкий суточный перепад")
+            if gaps >= 3:
                 level = "high"
-                reasons.append("Экстремальная температура")
-            elif stats["amp"] > 15:
+                reasons.append("Много пропусков данных")
+            elif gaps > 0 and level == "ok":
                 level = "medium"
-                reasons.append("Резкий суточный перепад")
-        if gaps >= 3:
-            level = "high"
-            reasons.append("Много пропусков данных")
-        elif gaps > 0 and level == "ok":
-            level = "medium"
-            reasons.append("Есть пропуски данных")
+                reasons.append("Есть пропуски данных")
 
-        days.append(
-            {
-                "date": day.isoformat(),
-                "day": day.day,
-                "level": level,
-                "reasons": reasons,
-                "has_data": bool(stats),
-            }
-        )
+            days.append(
+                {
+                    "date": day.isoformat(),
+                    "day": day.day,
+                    "level": level,
+                    "reasons": reasons,
+                    "has_data": bool(stats),
+                }
+            )
 
     return {
         "month": month_start.strftime("%Y-%m"),
@@ -847,13 +936,12 @@ def get_anomaly_calendar(month: str | None = None) -> dict[str, Any]:
     }
 
 
-def get_station_status() -> dict[str, Any]:
-    snapshot = get_latest_snapshot()
-    now = datetime.now(UTC)
-    day_ago = (now - timedelta(days=1)).isoformat()
-    week_ago = (now - timedelta(days=7)).isoformat()
-
-    with get_connection() as connection:
+def get_station_status(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    with use_connection(conn) as connection:
+        snapshot = get_latest_snapshot(conn=connection)
+        now = datetime.now(UTC)
+        day_ago = (now - timedelta(days=1)).isoformat()
+        week_ago = (now - timedelta(days=7)).isoformat()
         packets_24h = connection.execute(
             """
             SELECT COUNT(*) AS cnt

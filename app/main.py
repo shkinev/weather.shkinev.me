@@ -7,8 +7,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import hmac
 import json
+import sqlite3
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,6 +30,7 @@ from .config import (
 from .db import (
     HUMIDITY_SENSOR_IDS,
     TEMPERATURE_SENSOR_IDS,
+    db_dependency,
     get_anomaly_calendar,
     get_chart_series,
     get_comfort_risk,
@@ -44,6 +46,18 @@ from .db import (
     save_payload,
 )
 from .logging_setup import setup_logging
+from .schemas import (
+    AnomalyCalendar,
+    ChartSeries,
+    ComfortRisk,
+    CurrentResponse,
+    Heatmap,
+    IngestResult,
+    PeriodComparison,
+    StationStatus,
+    StatusOk,
+    UptimeMonitor,
+)
 
 
 app = FastAPI(title=APP_TITLE, version="1.1.0")
@@ -89,14 +103,14 @@ async def log_requests(request: Request, call_next):
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request) -> HTMLResponse:
-    snapshot = get_latest_snapshot()
-    uptime = get_uptime_monitor(24)
-    temp_extremes = get_today_extremes(TEMPERATURE_SENSOR_IDS, default_unit="°C")
-    humidity_extremes = get_today_extremes(HUMIDITY_SENSOR_IDS, default_unit="%")
-    comfort = get_comfort_risk(snapshot)
-    comparison = get_period_comparison()
-    chart_series = get_chart_series(1)
+def dashboard(request: Request, conn: sqlite3.Connection = Depends(db_dependency)) -> HTMLResponse:
+    snapshot = get_latest_snapshot(conn=conn)
+    uptime = get_uptime_monitor(24, conn=conn)
+    temp_extremes = get_today_extremes(TEMPERATURE_SENSOR_IDS, default_unit="°C", conn=conn)
+    humidity_extremes = get_today_extremes(HUMIDITY_SENSOR_IDS, default_unit="%", conn=conn)
+    comfort = get_comfort_risk(snapshot, conn=conn)
+    comparison = get_period_comparison(conn=conn)
+    chart_series = get_chart_series(days=1, conn=conn)
     return render_template(
         request,
         "index.html",
@@ -119,20 +133,24 @@ def charts_page(request: Request, days: int = 1) -> HTMLResponse:
 
 
 @app.get("/history", response_class=HTMLResponse)
-def history_page(request: Request, day: str | None = None) -> HTMLResponse:
+def history_page(
+    request: Request,
+    day: str | None = None,
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> HTMLResponse:
     selected_day = day or datetime.now(APP_TZ).date().isoformat()
-    items = get_history_for_date(selected_day)
+    items = get_history_for_date(selected_day, conn=conn)
     return render_template(request, "history.html", {"selected_day": selected_day, "items": items})
 
 
 @app.get("/station", response_class=HTMLResponse)
-def station_page(request: Request) -> HTMLResponse:
-    status = get_station_status()
+def station_page(request: Request, conn: sqlite3.Connection = Depends(db_dependency)) -> HTMLResponse:
+    status = get_station_status(conn=conn)
     return render_template(request, "station.html", {"status": status})
 
 
-@app.post("/api/ingest")
-async def ingest(request: Request) -> JSONResponse:
+@app.post("/api/ingest", response_model=IngestResult)
+async def ingest(request: Request, conn: sqlite3.Connection = Depends(db_dependency)) -> dict[str, Any]:
     if INGEST_TOKEN:
         provided = request.headers.get("X-Ingest-Token", "")
         if not hmac.compare_digest(provided, INGEST_TOKEN):
@@ -174,56 +192,63 @@ async def ingest(request: Request) -> JSONResponse:
         if len(sensors) > INGEST_MAX_SENSORS_PER_DEVICE:
             raise HTTPException(status_code=400, detail=f"Too many sensors in one device (max {INGEST_MAX_SENSORS_PER_DEVICE}).")
 
-    result = save_payload(payload)
-    return JSONResponse({"status": "ok", **result})
+    result = save_payload(payload, conn=conn)
+    return {"status": "ok", **result}
 
 
-@app.get("/api/status")
-def api_status() -> JSONResponse:
-    return JSONResponse({"status": "ok"})
+@app.get("/api/status", response_model=StatusOk)
+def api_status() -> dict[str, Any]:
+    return {"status": "ok"}
 
 
-@app.get("/api/current")
-def current_weather() -> JSONResponse:
-    snapshot = get_latest_snapshot()
+@app.get("/api/current", response_model=CurrentResponse)
+def current_weather(conn: sqlite3.Connection = Depends(db_dependency)) -> dict[str, Any]:
+    snapshot = get_latest_snapshot(conn=conn)
     if not snapshot:
-        return JSONResponse({"status": "empty", "snapshot": None})
-    return JSONResponse({"status": "ok", "snapshot": snapshot})
+        return {"status": "empty", "snapshot": None}
+    return {"status": "ok", "snapshot": snapshot}
 
 
-@app.get("/api/chart-data")
-def chart_data(days: int | None = None, hours: int | None = None) -> JSONResponse:
-    return JSONResponse(get_chart_series(days=days, hours=hours))
+@app.get("/api/chart-data", response_model=ChartSeries)
+def chart_data(
+    days: int | None = None,
+    hours: int | None = None,
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    return get_chart_series(days=days, hours=hours, conn=conn)
 
 
-@app.get("/api/uptime")
-def api_uptime(hours: int = 24) -> JSONResponse:
-    return JSONResponse(get_uptime_monitor(hours))
+@app.get("/api/uptime", response_model=UptimeMonitor)
+def api_uptime(hours: int = 24, conn: sqlite3.Connection = Depends(db_dependency)) -> dict[str, Any]:
+    return get_uptime_monitor(hours, conn=conn)
 
 
-@app.get("/api/comfort-risk")
-def api_comfort_risk() -> JSONResponse:
-    return JSONResponse(get_comfort_risk())
+@app.get("/api/comfort-risk", response_model=ComfortRisk)
+def api_comfort_risk(conn: sqlite3.Connection = Depends(db_dependency)) -> dict[str, Any]:
+    return get_comfort_risk(conn=conn)
 
 
-@app.get("/api/period-comparison")
-def api_period_comparison() -> JSONResponse:
-    return JSONResponse(get_period_comparison())
+@app.get("/api/period-comparison", response_model=PeriodComparison)
+def api_period_comparison(conn: sqlite3.Connection = Depends(db_dependency)) -> dict[str, Any]:
+    return get_period_comparison(conn=conn)
 
 
-@app.get("/api/temperature-heatmap")
-def api_temperature_heatmap(days: int = 30) -> JSONResponse:
-    return JSONResponse(get_temperature_heatmap(days))
+@app.get("/api/temperature-heatmap", response_model=Heatmap)
+def api_temperature_heatmap(days: int = 30, conn: sqlite3.Connection = Depends(db_dependency)) -> dict[str, Any]:
+    return get_temperature_heatmap(days, conn=conn)
 
 
-@app.get("/api/anomaly-calendar")
-def api_anomaly_calendar(month: str | None = None) -> JSONResponse:
-    return JSONResponse(get_anomaly_calendar(month))
+@app.get("/api/anomaly-calendar", response_model=AnomalyCalendar)
+def api_anomaly_calendar(
+    month: str | None = None,
+    conn: sqlite3.Connection = Depends(db_dependency),
+) -> dict[str, Any]:
+    return get_anomaly_calendar(month, conn=conn)
 
 
-@app.get("/api/station-status")
-def api_station_status() -> JSONResponse:
-    return JSONResponse(get_station_status())
+@app.get("/api/station-status", response_model=StationStatus)
+def api_station_status(conn: sqlite3.Connection = Depends(db_dependency)) -> dict[str, Any]:
+    return get_station_status(conn=conn)
 
 
 def _favicon_temp(snapshot: dict[str, Any] | None) -> float | None:
@@ -245,8 +270,8 @@ def favicon_ico() -> RedirectResponse:
 
 
 @app.get("/favicon.svg")
-def favicon_svg() -> Response:
-    temp = _favicon_temp(get_latest_snapshot())
+def favicon_svg(conn: sqlite3.Connection = Depends(db_dependency)) -> Response:
+    temp = _favicon_temp(get_latest_snapshot(conn=conn))
     if temp is None:
         label = "--"
         bg = "#334155"
