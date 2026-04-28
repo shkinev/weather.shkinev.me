@@ -44,6 +44,33 @@ MIGRATIONS: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_observations_device_time
         ON observations(device_mac, observed_at DESC);
     """,
+    # v2: таблицы конфигурации (app_settings) и реестр станций (stations).
+    # Заполнение значениями по умолчанию делается отдельно в Python (см.
+    # app/settings.py: seed_defaults), потому что часть значений приходит
+    # из env и зависит от рантайма.
+    """
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS stations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mac TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        sensor TEXT NOT NULL DEFAULT '',
+        location TEXT NOT NULL DEFAULT '',
+        battery_pct INTEGER,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_stations_enabled
+        ON stations(enabled);
+    """,
 ]
 
 

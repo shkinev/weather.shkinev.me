@@ -15,17 +15,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
+from . import settings
+from .auth import admin_enabled, require_admin
 from .config import (
-    APP_TITLE,
     INGEST_ALLOWED_MACS,
     INGEST_MAX_BODY_BYTES,
     INGEST_MAX_DEVICES,
     INGEST_MAX_SENSORS_PER_DEVICE,
     INGEST_TOKEN,
-    SITE_BRAND,
     WEATHER_TIMEZONE,
-    YANDEX_METRIKA_ENABLED,
-    YANDEX_METRIKA_ID,
+    env_settings_dict,
 )
 from .db import (
     HUMIDITY_SENSOR_IDS,
@@ -60,12 +59,8 @@ from .schemas import (
 )
 
 
-app = FastAPI(title=APP_TITLE, version="1.1.0")
+app = FastAPI(title="Weather Station", version="1.2.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-templates.env.globals["app_title"] = APP_TITLE
-templates.env.globals["site_brand"] = SITE_BRAND
-templates.env.globals["yandex_metrika_enabled"] = YANDEX_METRIKA_ENABLED
-templates.env.globals["yandex_metrika_id"] = YANDEX_METRIKA_ID
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 try:
     APP_TZ = ZoneInfo(WEATHER_TIMEZONE)
@@ -73,8 +68,19 @@ except ZoneInfoNotFoundError:
     APP_TZ = UTC
 
 
+def _site_globals() -> dict[str, Any]:
+    """Текущие user-facing значения для шаблонов. Читаются из app_settings."""
+    yandex_id = settings.get_string("YANDEX_METRIKA_ID").strip()
+    return {
+        "app_title": settings.get_string("APP_TITLE"),
+        "site_brand": settings.get_string("SITE_BRAND"),
+        "yandex_metrika_id": yandex_id,
+        "yandex_metrika_enabled": bool(yandex_id),
+    }
+
+
 def render_template(request: Request, template_name: str, context: dict[str, Any]) -> HTMLResponse:
-    full_context = {"request": request, **context}
+    full_context = {"request": request, **_site_globals(), **context}
     try:
         # Starlette/FastAPI with request-first TemplateResponse signature.
         return templates.TemplateResponse(request=request, name=template_name, context=full_context)
@@ -87,6 +93,9 @@ def render_template(request: Request, template_name: str, context: dict[str, Any
 def on_startup() -> None:
     setup_logging("web")
     init_db()
+    inserted = settings.seed_defaults_if_empty(env_settings_dict())
+    if inserted:
+        logger.info("Seeded {} app_settings rows from env defaults", inserted)
     logger.info("Web service started")
 
 
@@ -199,6 +208,13 @@ async def ingest(request: Request, conn: sqlite3.Connection = Depends(db_depende
 @app.get("/api/status", response_model=StatusOk)
 def api_status() -> dict[str, Any]:
     return {"status": "ok"}
+
+
+# ---------- Admin (HTTP Basic Auth) ----------
+
+@app.get("/admin/whoami")
+def admin_whoami(user: str = Depends(require_admin)) -> dict[str, Any]:
+    return {"user": user, "admin_enabled": admin_enabled()}
 
 
 @app.get("/api/current", response_model=CurrentResponse)

@@ -9,7 +9,7 @@ from typing import Any, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .cache import cached, invalidate as cache_invalidate
-from .config import DATABASE_PATH, WEATHER_PLACE_NAME, WEATHER_TIMEZONE
+from .config import DATABASE_PATH, WEATHER_TIMEZONE
 from .migrations import run_migrations
 from .sensor_map import PRIMARY_SENSOR_IDS, sensor_label, sensor_unit
 
@@ -1023,7 +1023,10 @@ def _format_temp_with_icon(value: float) -> str:
 
 
 def format_telegram_snapshot(snapshot: dict[str, Any] | None) -> str:
-    title = f'🏡 Погода: {WEATHER_PLACE_NAME}'
+    # Локальный импорт, чтобы не создать цикл при импортах в настройках/боте.
+    from . import settings as _settings
+    place = _settings.get_string("WEATHER_PLACE_NAME").strip() or "Локальная станция"
+    title = f'🏡 Погода: {place}'
     if not snapshot:
         return f"{title}\n⚪ --\n\n📭 Данных пока нет. Станция еще ничего не отправляла."
 
