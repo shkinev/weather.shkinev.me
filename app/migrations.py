@@ -71,6 +71,44 @@ MIGRATIONS: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_stations_enabled
         ON stations(enabled);
     """,
+    # v3: бэкфил stations для существующих развёртываний.
+    #
+    # До v2 список разрешённых mac жил в env (INGEST_ALLOWED_MACS) и
+    # таблицы stations не было. После апгрейда новый ingest требует
+    # запись в stations, иначе POST /api/ingest вернёт 403. Чтобы рабочая
+    # станция не "потерялась", заселяем stations из device_mac, которые
+    # уже встречались в ingest_batches: каждый mac → enabled запись.
+    # Один раз помечаем самый недавно активный mac как is_primary,
+    # только если primary ещё не выставлен (идемпотентность).
+    #
+    # Для свежих БД ingest_batches пуст — INSERT FROM SELECT даёт ноль
+    # строк, миграция NOOP-ит и просто продвигает user_version.
+    """
+    INSERT OR IGNORE INTO stations(
+        mac, name, sensor, location, enabled, is_primary, created_at, updated_at
+    )
+    SELECT
+        device_mac,
+        device_mac,
+        '',
+        '',
+        1,
+        0,
+        MIN(received_at),
+        MAX(received_at)
+    FROM ingest_batches
+    GROUP BY device_mac;
+
+    UPDATE stations
+    SET is_primary = 1
+    WHERE id = (
+        SELECT id FROM stations
+        WHERE enabled = 1
+        ORDER BY updated_at DESC, id ASC
+        LIMIT 1
+    )
+    AND NOT EXISTS (SELECT 1 FROM stations WHERE is_primary = 1);
+    """,
 ]
 
 
