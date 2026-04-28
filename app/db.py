@@ -324,8 +324,20 @@ def get_comfort_risk(snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
-def get_chart_series(days: int) -> dict[str, Any]:
-    period = max(1, min(days, 90))
+def get_chart_series(days: int | None = None, hours: int | None = None) -> dict[str, Any]:
+    """Серии измерений за последние N часов или дней.
+
+    Совместимо с прежней сигнатурой: вызов get_chart_series(1) — 1 день.
+    Для нового UI (1ч/24ч/7д/30д) удобнее передавать hours напрямую.
+    """
+    if hours is None and days is None:
+        hours_eff = 24
+    elif hours is not None:
+        hours_eff = hours
+    else:
+        hours_eff = (days or 0) * 24
+    hours_eff = max(1, min(hours_eff, 90 * 24))
+
     with get_connection() as connection:
         rows = connection.execute(
             """
@@ -335,7 +347,7 @@ def get_chart_series(days: int) -> dict[str, Any]:
               AND sensor_id <> ''
             ORDER BY observed_at ASC
             """,
-            (f"-{period} days",),
+            (f"-{hours_eff} hours",),
         ).fetchall()
 
     series: dict[str, dict[str, Any]] = {}
@@ -346,7 +358,7 @@ def get_chart_series(days: int) -> dict[str, Any]:
         )
         bucket["points"].append({"x": row["observed_at"], "y": row["value"]})
 
-    return {"days": period, "series": series}
+    return {"hours": hours_eff, "days": round(hours_eff / 24, 2), "series": series}
 
 
 def _value_by_ids(reading_lookup: dict[str, dict[str, Any]], ids: tuple[str, ...]) -> str:

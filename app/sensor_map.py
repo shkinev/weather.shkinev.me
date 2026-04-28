@@ -49,9 +49,18 @@ def sensor_label(sensor_id: str) -> str:
 
 
 def sensor_unit(sensor_id: str, payload_unit: str | None = None) -> str:
+    """Возвращает единицу измерения для датчика.
+
+    Для известных sensor_id (есть в SENSOR_MAP) — всегда берём из карты,
+    payload игнорим: прошивка станции может слать mojibake (`g/mВі`, `Вµg/mВі`).
+    Карта — источник истины. Для неизвестных id — пробуем payload_unit,
+    но только если он короткий и состоит из печатных ASCII символов.
+    """
     meta = SENSOR_MAP.get(sensor_id)
-    if payload_unit:
-        return payload_unit
     if meta and meta.unit:
         return meta.unit
+    if payload_unit:
+        cleaned = payload_unit.strip()
+        if 0 < len(cleaned) <= 16 and cleaned.isprintable() and cleaned.isascii():
+            return cleaned
     return ""

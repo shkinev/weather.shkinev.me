@@ -49,11 +49,18 @@
   <div class="charts-bottom">
     <div class="card">
       <div class="card-head"><div class="card-title">Тепловая карта температуры по часам (T1)</div><span class="card-code">30 дней</span></div>
-      <div id="heatmap" class="heatmap-grid"></div>
+      <div class="heatmap-wrap"><div id="heatmap" class="heatmap-grid"></div></div>
     </div>
     <div class="card">
-      <div class="card-head"><div class="card-title">Календарь аномалий</div></div>
-      <div id="anomaly-calendar" class="anomaly-calendar"></div>
+      <div class="card-head">
+        <div class="card-title">Календарь аномалий</div>
+        <div class="cal-nav">
+          <button type="button" class="icon-btn" id="cal-prev" aria-label="Предыдущий месяц">‹</button>
+          <span id="cal-title" class="mono small muted">—</span>
+          <button type="button" class="icon-btn" id="cal-next" aria-label="Следующий месяц">›</button>
+        </div>
+      </div>
+      <div id="anomaly-calendar"></div>
       <div class="legend-row">
         <span class="pill pill-good">Норма</span>
         <span class="pill pill-warn">Риск</span>
@@ -103,12 +110,14 @@ function datasetByIds(series, ids, color, fallbackLabel) {
   return null;
 }
 
+const chartRegistry = [];
+
 function createChart(elementId, datasets) {
   const target = document.getElementById(elementId);
   const filtered = datasets.filter(Boolean);
   if (!target || !filtered.length) return false;
 
-  new Chart(target, {
+  const chart = new Chart(target, {
     type: "line",
     data: { datasets: filtered },
     options: {
@@ -124,8 +133,32 @@ function createChart(elementId, datasets) {
       }
     }
   });
+  chartRegistry.push(chart);
   return true;
 }
+
+function applyThemeToCharts() {
+  const ax = axisColor(), gr = gridColor(), lg = legendColor();
+  for (const chart of chartRegistry) {
+    if (!chart || !chart.options) continue;
+    if (chart.options.scales) {
+      if (chart.options.scales.x) {
+        chart.options.scales.x.ticks = { ...(chart.options.scales.x.ticks || {}), color: ax };
+        chart.options.scales.x.grid = { ...(chart.options.scales.x.grid || {}), color: gr };
+      }
+      if (chart.options.scales.y) {
+        chart.options.scales.y.ticks = { ...(chart.options.scales.y.ticks || {}), color: ax };
+        chart.options.scales.y.grid = { ...(chart.options.scales.y.grid || {}), color: gr };
+      }
+    }
+    if (chart.options.plugins && chart.options.plugins.legend && chart.options.plugins.legend.labels) {
+      chart.options.plugins.legend.labels.color = lg;
+    }
+    chart.update("none");
+  }
+}
+
+window.addEventListener("theme-changed", applyThemeToCharts);
 
 function colorByTemp(value) {
   if (value === null || value === undefined) return cssVar("--surface-2");
@@ -167,21 +200,59 @@ function renderHeatmap(payload) {
   root.innerHTML = rows.join("");
 }
 
+const RU_MONTHS = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+const RU_WEEKDAYS = ["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"];
+
 function renderAnomalyCalendar(payload) {
   const root = document.getElementById("anomaly-calendar");
+  const titleEl = document.getElementById("cal-title");
   if (!root) return;
-  if (!payload || !Array.isArray(payload.days) || !payload.days.length) {
+  if (!payload || !payload.month) {
     root.innerHTML = '<div class="muted small">Нет данных.</div>';
+    if (titleEl) titleEl.textContent = "—";
     return;
   }
-  const parts = [];
-  for (const day of payload.days) {
-    const cls = day.level === "high" ? "high" : day.level === "medium" ? "medium" : "ok";
-    const reason = Array.isArray(day.reasons) && day.reasons.length ? day.reasons.join(", ") : "Норма";
-    parts.push('<div class="day ' + cls + '" title="' + day.date + ': ' + reason + '">' + day.day + '</div>');
+  const [y, m] = payload.month.split("-").map(Number);
+  if (titleEl) titleEl.textContent = RU_MONTHS[m - 1] + " " + y;
+
+  // Понедельник = 0 ... Воскресенье = 6
+  const firstWeekday = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+
+  let html = '<div class="cal-grid">';
+  for (const w of RU_WEEKDAYS) html += '<div class="cal-head">' + w + '</div>';
+  for (let i = 0; i < firstWeekday; i++) html += '<div class="day empty"></div>';
+
+  const days = Array.isArray(payload.days) ? payload.days : [];
+  for (const day of days) {
+    const cls = day.level === "high" ? "high" : day.level === "medium" ? "medium" : (day.has_data ? "ok" : "empty-day");
+    const reason = Array.isArray(day.reasons) && day.reasons.length ? day.reasons.join(", ") : (day.has_data ? "Норма" : "Нет данных");
+    html += '<div class="day ' + cls + '" title="' + day.date + ': ' + reason + '">' + day.day + '</div>';
   }
-  root.innerHTML = parts.join("");
+  html += '</div>';
+  root.innerHTML = html;
 }
+
+let calendarMonth = null; // "YYYY-MM"
+
+function loadAnomalyCalendar(month) {
+  const url = month ? "/api/anomaly-calendar?month=" + month : "/api/anomaly-calendar";
+  return fetch(url)
+    .then((r) => r.ok ? r.json() : Promise.reject())
+    .then((payload) => { calendarMonth = payload.month; renderAnomalyCalendar(payload); })
+    .catch(() => renderAnomalyCalendar(null));
+}
+
+function shiftMonth(deltaMonths) {
+  if (!calendarMonth) return;
+  const [y, m] = calendarMonth.split("-").map(Number);
+  const total = (y * 12 + (m - 1)) + deltaMonths;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  loadAnomalyCalendar(ny + "-" + String(nm).padStart(2, "0"));
+}
+
+document.getElementById("cal-prev")?.addEventListener("click", () => shiftMonth(-1));
+document.getElementById("cal-next")?.addEventListener("click", () => shiftMonth(+1));
 
 const palette = {
   temp:   cssVar("--c-temp")  || "#f97316",
@@ -215,9 +286,6 @@ fetch("/api/temperature-heatmap?days=30")
   .then(renderHeatmap)
   .catch(() => renderHeatmap(null));
 
-fetch("/api/anomaly-calendar")
-  .then((r) => r.ok ? r.json() : Promise.reject())
-  .then(renderAnomalyCalendar)
-  .catch(() => renderAnomalyCalendar(null));
+loadAnomalyCalendar();
 </script>
 {% endblock %}

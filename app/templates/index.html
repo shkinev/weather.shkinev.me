@@ -47,7 +47,7 @@
   {% set readings_by_id = {} %}
   {% for r in snapshot.readings %}{% set _ = readings_by_id.update({r.sensor_id|string|upper: r}) %}{% endfor %}
 
-  {% set ns = namespace(t=none, rh=none, p=none) %}
+  {% set ns = namespace(t=none, rh=none, p=none, ws=none, ws1=none, wdir=none, rain=none, rain24=none) %}
   {% for sid in ['T1','T2','T3','T4','T5','T6'] %}
     {% if ns.t is none and sid in readings_by_id %}{% set ns.t = readings_by_id[sid] %}{% endif %}
   {% endfor %}
@@ -57,9 +57,25 @@
   {% for sid in ['PRESS','HPA'] %}
     {% if ns.p is none and sid in readings_by_id %}{% set ns.p = readings_by_id[sid] %}{% endif %}
   {% endfor %}
+  {% if 'WS' in readings_by_id %}{% set ns.ws = readings_by_id['WS'] %}{% endif %}
+  {% if 'WS1' in readings_by_id %}{% set ns.ws1 = readings_by_id['WS1'] %}{% endif %}
+  {% if '1DIR' in readings_by_id %}{% set ns.wdir = readings_by_id['1DIR'] %}{% endif %}
+  {% if 'RAIN' in readings_by_id %}{% set ns.rain = readings_by_id['RAIN'] %}{% endif %}
+  {% if 'RAIN2' in readings_by_id %}{% set ns.rain24 = readings_by_id['RAIN2'] %}{% endif %}
   {% set t_reading = ns.t %}
   {% set rh_reading = ns.rh %}
   {% set p_reading = ns.p %}
+  {% set ws_reading = ns.ws %}
+  {% set ws_avg_reading = ns.ws1 %}
+  {% set wind_dir_reading = ns.wdir %}
+  {% set rain_reading = ns.rain %}
+  {% set rain24_reading = ns.rain24 %}
+
+  {%- macro compass_label(deg) -%}
+    {%- set bins = ['С','ССВ','СВ','ВСВ','В','ВЮВ','ЮВ','ЮЮВ','Ю','ЮЮЗ','ЮЗ','ЗЮЗ','З','ЗСЗ','СЗ','ССЗ'] -%}
+    {%- set idx = ((deg + 11.25) % 360 / 22.5) | int -%}
+    {{ bins[idx] }}
+  {%- endmacro -%}
 
   {# ---------- Primary metrics row ---------- #}
   <div class="a-grid">
@@ -118,32 +134,48 @@
       <div class="metric-chart" data-spark="PRESS" data-color="var(--c-press)"></div>
     </div>
 
-    {# Wind — заглушка #}
-    <div class="card metric-card empty">
+    {# Wind #}
+    <div class="card metric-card {% if not ws_reading %}empty{% endif %}">
       <div class="card-head">
         <div class="card-title">Ветер</div>
-        <span class="card-code">WIND</span>
+        <span class="card-code">WS</span>
       </div>
       <div class="metric-big">
-        <span class="mono">—</span>
-        <span class="metric-unit" style="color: var(--c-wind);">м/с</span>
+        <span class="mono">{{ fmt_num(ws_reading.value if ws_reading else none, 1) }}</span>
+        <span class="metric-unit" style="color: var(--c-wind);">{{ (ws_reading.unit if ws_reading else '') or 'м/с' }}</span>
       </div>
-      <div class="trend muted">направление и сила — датчик в плане</div>
-      <div class="metric-chart placeholder">Нет данных</div>
+      <div class="trend muted">
+        {% if wind_dir_reading %}
+          {{ compass_label(wind_dir_reading.value|int) }} · {{ wind_dir_reading.value|int }}°
+        {% else %}
+          скорость ветра
+        {% endif %}
+      </div>
+      <div class="wind-inline">
+        <div class="wind-dial"
+             data-wind-dir="{{ wind_dir_reading.value if wind_dir_reading else '' }}"
+             data-wind-color="var(--c-wind)"></div>
+        <div class="wind-meta">
+          <div><span class="muted">Среднее (5 мин)</span> <span class="mono">{{ fmt_num(ws_avg_reading.value if ws_avg_reading else none, 1) }} {{ (ws_avg_reading.unit if ws_avg_reading else '') or 'м/с' }}</span></div>
+          <div><span class="muted">Направление</span> <span class="mono">{% if wind_dir_reading %}{{ compass_label(wind_dir_reading.value|int) }} · {{ wind_dir_reading.value|int }}°{% else %}—{% endif %}</span></div>
+        </div>
+      </div>
     </div>
 
-    {# Rain — заглушка #}
-    <div class="card metric-card empty">
+    {# Rain #}
+    <div class="card metric-card {% if not rain24_reading and not rain_reading %}empty{% endif %}">
       <div class="card-head">
         <div class="card-title">Осадки</div>
         <span class="card-code">RAIN</span>
       </div>
       <div class="metric-big">
-        <span class="mono">—</span>
-        <span class="metric-unit" style="color: var(--c-rain);">мм</span>
+        <span class="mono">{{ fmt_num(rain24_reading.value if rain24_reading else none, 1) }}</span>
+        <span class="metric-unit" style="color: var(--c-rain);">{{ (rain24_reading.unit if rain24_reading else '') or 'мм' }}</span>
       </div>
-      <div class="trend muted">осадки за сутки — датчик в плане</div>
-      <div class="metric-chart placeholder">Нет данных</div>
+      <div class="trend muted">
+        за 24 часа{% if rain_reading %} · сейчас (5 мин) <span class="mono">{{ fmt_num(rain_reading.value, 1) }} {{ rain_reading.unit or 'мм' }}</span>{% endif %}
+      </div>
+      <div class="metric-chart" data-rainbars="RAIN" data-color="var(--c-rain)"></div>
     </div>
 
     {# Comfort #}
@@ -419,6 +451,74 @@
     container.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + paths + '</svg>';
   }
 
+  function buildWindDial(container) {
+    const dirAttr = container.getAttribute("data-wind-dir");
+    const color = resolveColor(container.getAttribute("data-wind-color") || "");
+    if (dirAttr === "" || dirAttr == null) {
+      container.innerHTML = '<div class="placeholder placeholder-sm">—</div>';
+      return;
+    }
+    const dir = parseFloat(dirAttr) || 0;
+    const size = 92, cx = size / 2, cy = size / 2, r = size / 2 - 8;
+    const rad = ((dir - 90) * Math.PI) / 180;
+    const ax = cx + Math.cos(rad) * (r - 4);
+    const ay = cy + Math.sin(rad) * (r - 4);
+    const labels = [["С", 0], ["В", 90], ["Ю", 180], ["З", 270]];
+    let labelMarkup = "";
+    for (const [text, deg] of labels) {
+      const a = ((deg - 90) * Math.PI) / 180;
+      const tx = cx + Math.cos(a) * (r + 4);
+      const ty = cy + Math.sin(a) * (r + 4) + 3;
+      labelMarkup += '<text x="' + tx.toFixed(1) + '" y="' + ty.toFixed(1) +
+        '" font-size="9" text-anchor="middle" fill="var(--muted)" font-family="var(--font-mono)">' + text + '</text>';
+    }
+    let ticks = "";
+    for (const deg of [0, 45, 90, 135, 180, 225, 270, 315]) {
+      const a = ((deg - 90) * Math.PI) / 180;
+      const x1 = cx + Math.cos(a) * (r - 2), y1 = cy + Math.sin(a) * (r - 2);
+      const x2 = cx + Math.cos(a) * r, y2 = cy + Math.sin(a) * r;
+      ticks += '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) +
+        '" y2="' + y2.toFixed(1) + '" stroke="var(--grid)" stroke-width="1"/>';
+    }
+    container.innerHTML =
+      '<svg viewBox="0 0 ' + size + ' ' + size + '" width="' + size + '" height="' + size + '">' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="var(--grid)" stroke-width="1"/>' +
+      ticks + labelMarkup +
+      '<line x1="' + cx + '" y1="' + cy + '" x2="' + ax.toFixed(1) + '" y2="' + ay.toFixed(1) +
+      '" stroke="' + color + '" stroke-width="2" stroke-linecap="round"/>' +
+      '<circle cx="' + ax.toFixed(1) + '" cy="' + ay.toFixed(1) + '" r="3" fill="' + color + '"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="2" fill="var(--ink)"/>' +
+      '</svg>';
+  }
+
+  function buildRainBars(container, points, color) {
+    if (!points || !points.length) {
+      container.classList.add("placeholder");
+      container.textContent = "Нет данных";
+      return;
+    }
+    const tail = points.slice(-24);
+    const W = 520, H = 96, pad = 4;
+    const w = W - pad * 2, h = H - pad * 2;
+    const hi = Math.max.apply(null, tail.map(p => p.y).concat([0.5]));
+    const gridLine = resolveColor("var(--grid)");
+    const bw = (w / tail.length) * 0.7, gap = (w / tail.length) * 0.3;
+    let bars = "";
+    tail.forEach((p, i) => {
+      const x = pad + i * (bw + gap) + gap / 2;
+      const bh = (p.y / hi) * h;
+      const fill = p.y > 0 ? color : gridLine;
+      bars += '<rect x="' + x.toFixed(1) + '" y="' + (pad + h - bh).toFixed(1) +
+        '" width="' + bw.toFixed(1) + '" height="' + bh.toFixed(1) +
+        '" fill="' + fill + '" rx="1"/>';
+    });
+    container.classList.remove("placeholder");
+    container.innerHTML =
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
+      '<line x1="' + pad + '" y1="' + (pad + h) + '" x2="' + (W - pad) + '" y2="' + (pad + h) +
+      '" stroke="' + gridLine + '" stroke-width="0.5"/>' + bars + '</svg>';
+  }
+
   function compactPoints(rawHourly) {
     if (!Array.isArray(rawHourly)) return null;
     return rawHourly
@@ -434,6 +534,12 @@
       const item = series[sid];
       buildSparkline(el, item ? item.points : null, color, withAxis);
     });
+    document.querySelectorAll(".metric-chart[data-rainbars]").forEach(function (el) {
+      const sid = el.getAttribute("data-rainbars");
+      const color = resolveColor(el.getAttribute("data-color") || "");
+      const item = series[sid];
+      buildRainBars(el, item ? item.points : null, color);
+    });
     document.querySelectorAll(".metric-chart[data-overlay='comparison']").forEach(function (el) {
       buildOverlay(el, [
         { name: "monthAgo", points: compactPoints(compRaw.monthAgo), color: resolveColor("var(--c-wind)"), dashed: true },
@@ -441,6 +547,7 @@
         { name: "today", points: compactPoints(compRaw.today), color: resolveColor("var(--c-temp)"), emphasis: true },
       ]);
     });
+    document.querySelectorAll(".wind-dial").forEach(buildWindDial);
   }
   renderAll();
   window.addEventListener("theme-changed", renderAll);
@@ -485,7 +592,7 @@
     });
   }
 
-  // Range switcher
+  // Range switcher: окно sparklines (Min/Max и Comparison остаются "за сегодня")
   const rangeSwitcher = document.getElementById("range-switcher");
   if (rangeSwitcher) {
     rangeSwitcher.addEventListener("click", function (e) {
@@ -493,10 +600,18 @@
       if (!btn) return;
       rangeSwitcher.querySelectorAll(".seg-btn").forEach(b => b.classList.toggle("active", b === btn));
       const range = btn.getAttribute("data-range");
-      const days = range === "1h" ? 1 : range === "24h" ? 1 : range === "7d" ? 7 : 30;
-      fetch("/api/chart-data?days=" + days)
+      const params = range === "1h" ? "hours=1"
+        : range === "24h" ? "hours=24"
+        : range === "7d"  ? "hours=" + (7 * 24)
+        : "hours=" + (30 * 24);
+      fetch("/api/chart-data?" + params)
         .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => { Object.assign(series, data.series || {}); renderAll(); })
+        .then(data => {
+          // полностью заменяем series, чтобы старые точки не оставались между переключениями
+          for (const k of Object.keys(series)) delete series[k];
+          Object.assign(series, data.series || {});
+          renderAll();
+        })
         .catch(() => {});
     });
   }

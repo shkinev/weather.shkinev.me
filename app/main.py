@@ -5,13 +5,27 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import hmac
+import json
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
-from .config import APP_TITLE, SITE_BRAND, WEATHER_TIMEZONE, YANDEX_METRIKA_ENABLED, YANDEX_METRIKA_ID
+from .config import (
+    APP_TITLE,
+    INGEST_ALLOWED_MACS,
+    INGEST_MAX_BODY_BYTES,
+    INGEST_MAX_DEVICES,
+    INGEST_MAX_SENSORS_PER_DEVICE,
+    INGEST_TOKEN,
+    SITE_BRAND,
+    WEATHER_TIMEZONE,
+    YANDEX_METRIKA_ENABLED,
+    YANDEX_METRIKA_ID,
+)
 from .db import (
     HUMIDITY_SENSOR_IDS,
     TEMPERATURE_SENSOR_IDS,
@@ -118,10 +132,47 @@ def station_page(request: Request) -> HTMLResponse:
 
 
 @app.post("/api/ingest")
-async def ingest(payload: dict[str, Any]) -> JSONResponse:
+async def ingest(request: Request) -> JSONResponse:
+    if INGEST_TOKEN:
+        provided = request.headers.get("X-Ingest-Token", "")
+        if not hmac.compare_digest(provided, INGEST_TOKEN):
+            logger.warning("Ingest rejected: bad or missing X-Ingest-Token from {}", request.client.host if request.client else "?")
+            raise HTTPException(status_code=401, detail="Invalid ingest token.")
+
+    body = await request.body()
+    if len(body) > INGEST_MAX_BODY_BYTES:
+        logger.warning("Ingest rejected: body size {} > limit {}", len(body), INGEST_MAX_BODY_BYTES)
+        raise HTTPException(status_code=413, detail=f"Payload too large (limit {INGEST_MAX_BODY_BYTES} bytes).")
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {err}") from err
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object.")
+
     devices = payload.get("devices")
     if not isinstance(devices, list) or not devices:
         raise HTTPException(status_code=400, detail="Payload must contain a non-empty 'devices' array.")
+
+    if len(devices) > INGEST_MAX_DEVICES:
+        raise HTTPException(status_code=400, detail=f"Too many devices in payload (max {INGEST_MAX_DEVICES}).")
+
+    if INGEST_ALLOWED_MACS:
+        allowed = {m.lower() for m in INGEST_ALLOWED_MACS}
+        for device in devices:
+            mac = str(device.get("mac") or "").strip().lower()
+            if mac not in allowed:
+                logger.warning("Ingest rejected: mac {!r} not in whitelist", mac)
+                raise HTTPException(status_code=403, detail="Device mac is not whitelisted.")
+
+    for device in devices:
+        sensors = device.get("sensors") or []
+        if not isinstance(sensors, list):
+            raise HTTPException(status_code=400, detail="device.sensors must be an array.")
+        if len(sensors) > INGEST_MAX_SENSORS_PER_DEVICE:
+            raise HTTPException(status_code=400, detail=f"Too many sensors in one device (max {INGEST_MAX_SENSORS_PER_DEVICE}).")
 
     result = save_payload(payload)
     return JSONResponse({"status": "ok", **result})
@@ -141,8 +192,8 @@ def current_weather() -> JSONResponse:
 
 
 @app.get("/api/chart-data")
-def chart_data(days: int = 1) -> JSONResponse:
-    return JSONResponse(get_chart_series(days))
+def chart_data(days: int | None = None, hours: int | None = None) -> JSONResponse:
+    return JSONResponse(get_chart_series(days=days, hours=hours))
 
 
 @app.get("/api/uptime")

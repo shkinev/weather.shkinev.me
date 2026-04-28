@@ -43,6 +43,10 @@ def _parse_bool(value: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on", "y", "да"}
 
 
+def _parse_str_list(value: str) -> list[str]:
+    return [chunk.strip() for chunk in value.split(",") if chunk.strip()]
+
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = Path(os.getenv("WEATHER_DB_PATH", BASE_DIR / "weather.sqlite3"))
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -66,3 +70,10 @@ TELEGRAM_DYNAMIC_NAME_PREFIX = (
     os.getenv("TELEGRAM_DYNAMIC_NAME_PREFIX", f"Погода: {WEATHER_PLACE_NAME}").strip() or f"Погода: {WEATHER_PLACE_NAME}"
 )
 TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES = int(os.getenv("TELEGRAM_DYNAMIC_NAME_INTERVAL_MINUTES", "10"))
+
+# Ingest security
+INGEST_ALLOWED_MACS = _parse_str_list(os.getenv("INGEST_ALLOWED_MACS", ""))
+INGEST_TOKEN = os.getenv("INGEST_TOKEN", "").strip()
+INGEST_MAX_BODY_BYTES = int(os.getenv("INGEST_MAX_BODY_BYTES", str(512 * 1024)))
+INGEST_MAX_DEVICES = int(os.getenv("INGEST_MAX_DEVICES", "5"))
+INGEST_MAX_SENSORS_PER_DEVICE = int(os.getenv("INGEST_MAX_SENSORS_PER_DEVICE", "128"))
