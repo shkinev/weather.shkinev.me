@@ -21,9 +21,41 @@ def _parse_str_list(value: str) -> list[str]:
     return [chunk.strip() for chunk in value.split(",") if chunk.strip()]
 
 
+def _load_dotenv(path: Path) -> None:
+    """Подгружает переменные из .env, если файл существует.
+
+    Существующие переменные окружения не перезаписываются — env приоритетнее
+    .env (важно для Docker, где env_file уже всё прокинул). Это нужно, чтобы
+    локальный запуск через `uvicorn app.main:app` без `set -a; source .env`
+    тоже работал из коробки. Поддерживаются строки вида KEY=VALUE,
+    комментарии (#) и одинарные/двойные кавычки вокруг значения.
+    """
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        os.environ[key] = value
+
+
 # ---------- Deployment / paths ----------
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+_load_dotenv(BASE_DIR / ".env")
 DATABASE_PATH = Path(os.getenv("WEATHER_DB_PATH", BASE_DIR / "weather.sqlite3"))
 LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
 WEATHER_TIMEZONE = os.getenv("WEATHER_TIMEZONE", "UTC")
